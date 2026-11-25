@@ -355,7 +355,7 @@ function importarPesos(texto) {
 
 // ---------- Carga inicial (roda uma única vez por aparelho) ----------
 const HIST_PESO = ``;
-const METAS_INICIAIS = { pesoMeta: 80, altura: 183, imcMeta: 25, idade: 38, sexo: 'M' };
+const METAS_INICIAIS = {}; // metas pessoais vêm da planilha (aba Config), não do código
 
 function cargaInicial() {
   if ((S.cargaInicial || 0) < 2) cargaPlanilha();
