@@ -1473,6 +1473,121 @@ function addFora(i, j) {
   toast(`${x.nome.split(' (')[0]} lançado · ≈ ${fmt(item.kcal)} kcal`);
 }
 
+// ---------- Descrever o que comi (interpretação no próprio app, sem IA e sem enviar nada para fora) ----------
+const NUM_PAL = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, meio: 0.5, meia: 0.5, metade: 0.5 };
+const UN_PAL = { g: 'g', gr: 'g', grama: 'g', gramas: 'g', kg: 'kg', ml: 'ml', l: 'l', litro: 'l', litros: 'l', un: 'un', unidade: 'un', unidades: 'un',
+  fatia: 'un', fatias: 'un', copo: 'copo', copos: 'copo', colher: 'colher', colheres: 'colher', concha: 'concha', conchas: 'concha',
+  xicara: 'xicara', xicaras: 'xicara', pedaco: 'pedaco', pedacos: 'pedaco', dose: 'dose', doses: 'dose', prato: 'prato', pratos: 'prato' };
+const G_MEDIDA = { copo: 200, colher: 20, concha: 100, xicara: 150, pedaco: 80, dose: 30, prato: 350 };
+// gramas de 1 unidade (ou fatia) de alimentos comuns; fora desta lista, assume 100 g e avisa
+const G_UNID = [['ovo', 50], ['pao frances', 50], ['pao de forma', 25], ['pao de queijo', 20], ['queijo', 20], ['presunto', 15], ['banana', 100], ['maca', 130],
+  ['laranja', 150], ['biscoito', 6], ['iogurte', 170], ['tapioca', 60], ['whey', 30], ['batata', 130], ['bolo', 80], ['cafe', 50]];
+const FILLER = new Set(['de', 'do', 'da', 'dos', 'das', 'no', 'na', 'meu', 'minha', 'uns', 'umas', 'o', 'a', 'os', 'as', 'bem', 'pouco', 'pouca', 'comi', 'tomei', 'bebi']);
+function singular(w) { return w.length > 3 ? w.replace(/aes$/, 'ao').replace(/oes$/, 'ao').replace(/s$/, '') : w; }
+function acharAlimento(tokens) {
+  const q = tokens.map(singular);
+  const alvo = q.join(' ');
+  const pr = PRATOS.find((p) => norm(p.nome) === alvo || singular(norm(p.nome)) === alvo);
+  if (pr) { const fd = alimentoPorNome(pr.food); if (fd) return fd; }
+  const foodsPratos = new Set(PRATOS.map((p) => norm(p.food)));
+  const cands = todosAlimentos().map((a, ord) => ({ a, ord, n: norm(a.nome) }))
+    .filter((c) => { const ws = c.n.split(/[^a-z0-9]+/).filter(Boolean); return q.every((t) => ws.some((w) => w.startsWith(t) || singular(w) === t)); });
+  if (!cands.length) return null;
+  const pont = (c) => (c.a.meu ? 0 : 4) + (c.n === alvo ? -3 : 0) + (foodsPratos.has(c.n) ? 0 : 1) + (c.n.startsWith(q[0]) ? 0 : 1) + c.n.length / 100;
+  cands.sort((x, y) => pont(x) - pont(y) || x.ord - y.ord);
+  return cands[0].a;
+}
+function interpretarSegmento(seg) {
+  const ws = norm(seg).replace(/(\d)\s*(kg|gr|g|ml|l)\b/g, '$1 $2').replace(/[^a-z0-9.,/\s]/g, ' ').split(/\s+/).filter(Boolean);
+  let q = null, un = null; const nome = [];
+  for (let i = 0; i < ws.length; i++) {
+    const w = ws[i];
+    if (q === null && (/^\d+([.,]\d+)?$/.test(w) || NUM_PAL[w] !== undefined)) {
+      q = NUM_PAL[w] !== undefined ? NUM_PAL[w] : num(w);
+      if (UN_PAL[ws[i + 1]]) { un = UN_PAL[ws[i + 1]]; i++; if (ws[i + 1] === 'de') i++; }
+    } else if (q === null && UN_PAL[w] && !nome.length && ws.slice(i + 1).length) { q = 1; un = UN_PAL[w]; }
+    else if (!FILLER.has(w) && !/^\d/.test(w)) nome.push(w);
+  }
+  if (!nome.length) return { txt: seg.trim(), ok: false };
+  const fd = acharAlimento(nome);
+  if (!fd) return { txt: seg.trim(), ok: false };
+  const n = norm(fd.nome);
+  const gu = (G_UNID.find(([k]) => n.includes(k) || norm(nome.join(' ')).includes(k)) || [])[1];
+  let gramas, assumido = false;
+  if (un === 'g' || un === 'ml') gramas = q;
+  else if (un === 'kg' || un === 'l') gramas = q * 1000;
+  else if (G_MEDIDA[un]) gramas = q * G_MEDIDA[un];
+  else if (q !== null || un === 'un') { const k = q === null ? 1 : q; if (gu) gramas = k * gu; else { gramas = k * 100; assumido = true; } }
+  else if (gu) gramas = gu;                 // "ovo" = 1 ovo
+  else { gramas = 100; assumido = true; }   // sem quantidade: 100 g, para você conferir
+  return { txt: seg.trim(), ok: true, fd, gramas: r1(gramas), assumido };
+}
+function interpretarTexto(texto) {
+  const segs = norm(texto).split(/[,;\n+]|\s(?:e|com|mais)\s/).map((s) => s.trim()).filter(Boolean);
+  const itens = [], nao = [];
+  for (const s of segs) { const r = interpretarSegmento(s); (r.ok ? itens : nao).push(r); }
+  return { itens, nao: nao.map((x) => x.txt) };
+}
+function sheetDescrever() {
+  const f = form;
+  f.data = $('#fData')?.value || f.data;
+  form = { tipo: 'desc', refeicao: f.refeicao, data: f.data, texto: '', itens: null, nao: [] };
+  renderDescrever();
+}
+function renderDescrever() {
+  const f = form, dd = `${f.data.slice(8)}/${f.data.slice(5, 7)}`;
+  if (!f.itens) {
+    abrirSheet(`
+      <div class="sheet-h"><h2>Descrever o que comi</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+      <div class="hint" style="margin:-4px 0 10px">Escreva ou dite (microfone do teclado) o que comeu, separando por vírgula ou "e". Será lançado em <b>${esc(f.refeicao)}</b> (${dd}).</div>
+      <textarea class="input" id="dTexto" rows="4" placeholder="Ex.: 2 ovos mexidos, 1 pão francês com queijo, 200 ml de leite" style="resize:vertical;font-size:15px">${esc(f.texto)}</textarea>
+      <button class="btn" style="margin-top:10px" data-action="d-ler">Interpretar</button>`);
+    setTimeout(() => $('#dTexto')?.focus(), 50);
+    return;
+  }
+  abrirSheet(`
+    <div class="sheet-h"><h2>Confira</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="hint" style="margin:-4px 0 8px">"${esc(f.texto)}"<br>Ajuste as gramas se precisar. Itens com ≈ tiveram a quantidade assumida.</div>
+    ${f.itens.map((it, i) => `<div class="prato desc">
+      <div class="pn"><b>${esc(it.fd.nome)}${it.assumido ? ' ≈' : ''}</b><small class="num" id="dk_${i}"></small></div>
+      <div class="pstep"><input class="input num pq" id="dg_${i}" type="number" inputmode="decimal" min="0" step="any" value="${it.gramas}"><span class="pu fixo">g</span></div>
+      <button class="del" data-action="d-del" data-i="${i}" aria-label="Remover">${ICON.x}</button>
+    </div>`).join('') || '<div class="empty"><b>Nada reconhecido</b>Tente de outro jeito ou use a busca.</div>'}
+    ${f.nao.length ? `<div class="note">Não entendi: ${f.nao.map((x) => `"${esc(x)}"`).join(', ')}. Adicione esses pela busca ou por "Comi fora".</div>` : ''}
+    <div class="pratos-tot" id="dTot"></div>
+    <div class="btn-row"><button class="btn ghost" data-action="d-voltar" style="flex:.6">Editar texto</button><button class="btn" data-action="d-add" id="dAdd">Lançar</button></div>`);
+  atualizarDescrever();
+}
+function itemDesc(it) {
+  const k = num(it.gramas) / 100, fd = it.fd;
+  return { nome: fd.nome, gramas: r1(num(it.gramas)), kcal: Math.round(fd.kcal * k), prot: r1(fd.prot * k), carb: r1(fd.carb * k), gord: r1(fd.gord * k), fibra: r1(fd.fibra * k) };
+}
+function atualizarDescrever() {
+  const f = form; if (!f?.itens) return;
+  const tot = { kcal: 0, prot: 0, carb: 0, gord: 0, fibra: 0 }; let n = 0;
+  f.itens.forEach((it, i) => {
+    const r = itemDesc(it), el = $('#dk_' + i);
+    if (el) el.textContent = num(it.gramas) > 0 ? `${fmt(r.kcal)} kcal · P ${fmt(r.prot, 1)} · C ${fmt(r.carb, 1)} · G ${fmt(r.gord, 1)}` : '';
+    if (num(it.gramas) > 0) { n++; for (const k in tot) tot[k] += r[k]; }
+  });
+  const t = $('#dTot'), b = $('#dAdd');
+  if (t) t.innerHTML = n ? `<div class="pk num"><span><b>${fmt(tot.kcal)}</b> kcal</span><span><b>${fmt(tot.prot)}</b> g prot</span><span><b>${fmt(tot.carb)}</b> g carb</span><span><b>${fmt(tot.gord)}</b> g gord</span></div>` : '';
+  if (b) { b.disabled = !n; b.textContent = n ? `Lançar ${n} ${n === 1 ? 'item' : 'itens'}` : 'Lançar'; }
+}
+function lancarDescricao() {
+  const f = form; if (!f?.itens) return;
+  const itens = f.itens.filter((it) => num(it.gramas) > 0);
+  if (!itens.length) return;
+  const { data, refeicao } = f; let kcal = 0;
+  fecharSheet();
+  for (const it of itens) {
+    const r = itemDesc(it);
+    adicionar('refeicoes', { data, hora: data === hoje() ? agoraHora() : '', refeicao, alimento: r.nome + (it.assumido ? ' ≈' : ''), gramas: r.gramas, kcal: r.kcal, prot: r.prot, carb: r.carb, gord: r.gord, fibra: r.fibra });
+    kcal += r.kcal;
+  }
+  toast(`${itens.length} ${itens.length === 1 ? 'item lançado' : 'itens lançados'} · ${fmt(kcal)} kcal`);
+}
+
 // ---------- Combos (neste aparelho) ----------
 function lerCombos() { try { const c = JSON.parse(localStorage.getItem('vitta:combos') || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
 function gravarCombos(c) { try { localStorage.setItem('vitta:combos', JSON.stringify(c)); } catch { /* sem armazenamento */ } }
@@ -1519,6 +1634,7 @@ function htmlPratos() {
     <div class="pbusca"><input class="input" id="pBusca" placeholder="Buscar alimento… (ex.: pão, banana)" autocomplete="off"><div id="pRes"></div></div>
     <div class="p-atalhos">
       ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
+      <button class="btn ghost p-rep" data-action="desc-abrir">✍️ Descrever o que comi</button>
       <button class="btn ghost p-rep" data-action="fora-abrir">🍽️ Comi fora (estimado)</button>
       ${lerCombos().map((c, i) => `<span class="combo"><button data-action="p-combo" data-i="${i}">★ ${esc(c.nome)}</button><button class="cx" data-action="p-combo-del" data-i="${i}" aria-label="Excluir combo">×</button></span>`).join('')}
     </div>
@@ -1912,6 +2028,16 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'p-repetir': repetirRefeicao(); break;
+    case 'desc-abrir': sheetDescrever(); break;
+    case 'd-ler': {
+      form.texto = $('#dTexto')?.value || form.texto;
+      if (!form.texto.trim()) { toast('Escreva o que você comeu'); break; }
+      const r = interpretarTexto(form.texto); form.itens = r.itens; form.nao = r.nao; renderDescrever();
+      break;
+    }
+    case 'd-voltar': form.itens = null; renderDescrever(); break;
+    case 'd-del': form.itens.splice(Number(b.dataset.i), 1); renderDescrever(); break;
+    case 'd-add': lancarDescricao(); break;
     case 'fora-abrir': sheetFora(); break;
     case 'fora-add': addFora(Number(b.dataset.i), Number(b.dataset.j)); break;
     case 'p-combo': aplicarCombo(Number(b.dataset.i)); break;
@@ -1958,6 +2084,8 @@ document.addEventListener('input', (e) => {
   const id = e.target.id;
   if (id && id.startsWith('pq_') && form?.pratos) { form.pratos[Number(id.slice(3))].q = e.target.value; atualizarPratos(); }
   else if (id === 'pBusca' && form?.lista) buscarPratos(e.target.value);
+  else if (id === 'dTexto' && form?.tipo === 'desc') form.texto = e.target.value;
+  else if (id && id.startsWith('dg_') && form?.itens) { form.itens[Number(id.slice(3))].gramas = e.target.value; atualizarDescrever(); }
   else if (id === 'fBusca') { form.busca = e.target.value; renderSugestoes(); }
   else if (id === 'fGramas') { form.gramas = num(e.target.value); atualizarPreview(); }
   else if (id && id.startsWith('m_')) atualizarPreview();
