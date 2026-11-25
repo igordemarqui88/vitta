@@ -77,8 +77,8 @@ const TREINOS = {
     { n: 'Rosca concentrada', met: 2.9 }, { n: 'Rosca direta no banco inclinado', met: 3.1 },
     { n: 'Abdominal infra / elevação de pernas', met: 3.3, opc: true } ] },
   C: { grupos: 'Ombros, pernas e abdômen', minutos: 70, met: 3.32, minEx: 10, exercicios: [
-    { n: 'Panturrilha sentado (no lugar do agachamento)', met: 2.8 }, { n: 'Leg press 45°', met: 4.0 },
-    { n: 'Cadeira extensora', met: 3.3 }, { n: 'Cadeira flexora', met: 3.3 },
+    { n: 'Leg press 45°', met: 4.0 }, { n: 'Cadeira extensora', met: 3.3 }, { n: 'Cadeira flexora', met: 3.3 },
+    { n: 'Panturrilha sentado (no lugar do agachamento)', met: 2.8 },
     { n: 'Desenvolvimento sentado com barra', met: 3.8 }, { n: 'Crucifixo inverso (banco)', met: 3.0 },
     { n: 'Elevação lateral com halteres', met: 3.0 }, { n: 'Abdominal oblíquo alternado', met: 3.3, opc: true } ] },
 };
