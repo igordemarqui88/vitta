@@ -1,4 +1,4 @@
-// Base de alimentos — valores aproximados por 100 g (ou 100 ml), baseados na TACO/USDA.
+﻿// Base de alimentos — valores aproximados por 100 g (ou 100 ml), baseados na TACO/USDA.
 // Campos: [nome, kcal, proteína, carboidrato, gordura, fibra]
 // Para alimentos que não estão aqui, use "Adicionar manualmente" no app (eles ficam salvos em "Meus alimentos").
 window.FOODS_BASE = [
@@ -62,7 +62,7 @@ window.FOODS_BASE = [
   ['Requeijão', 257, 9.6, 2.4, 23.4, 0],
   ['Requeijão light', 180, 11.0, 4.0, 13.5, 0],
   ['Manteiga', 726, 0.4, 0.1, 82.4, 0],
-  ['Whey protein (pó)', 400, 80.0, 8.0, 6.0, 0],
+  ['Whey protein (pó)', 400, 70.0, 8.0, 6.0, 0],
 
   // Frutas
   ['Banana prata', 98, 1.3, 26.0, 0.1, 2.0],

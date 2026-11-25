@@ -1,4 +1,4 @@
-/* Vitta — diário de alimentação, atividades e peso.
+﻿/* Vitta — diário de alimentação, atividades e peso.
    Dados ficam no aparelho (localStorage) e são sincronizados com o Google Sheets
    através de um Web App do Google Apps Script (ver apps-script/Code.gs). */
 (() => {
@@ -40,7 +40,7 @@ const PRATOS = [
   { nome: 'Ovos',            food: 'Ovo inteiro cozido', un: 'un', g: 50, padrao: 'un' },
   { nome: 'Muçarela',        food: 'Queijo muçarela', un: 'fatia', g: 20, padrao: 'un' },
   { nome: 'Leite',           food: 'Leite integral', un: 'copo', g: 200, medida: 'ml' },
-  { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'un' },
+  { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g' },
 ];
 
 // campos: dist = distância em km · distm = distância em metros · incl = inclinação da esteira (%)
