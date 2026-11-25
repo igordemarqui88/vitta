@@ -1,4 +1,4 @@
-﻿/* Vitta — diário de alimentação, atividades e peso.
+/* Vitta — diário de alimentação, atividades e peso.
    Dados ficam no aparelho (localStorage) e são sincronizados com o Google Sheets
    através de um Web App do Google Apps Script (ver apps-script/Code.gs). */
 (() => {
@@ -40,7 +40,7 @@ const PRATOS = [
   { nome: 'Ovos',            food: 'Ovo inteiro cozido', un: 'un', g: 50, padrao: 'un' },
   { nome: 'Muçarela',        food: 'Queijo muçarela', un: 'fatia', g: 20, padrao: 'un' },
   { nome: 'Leite',           food: 'Leite integral', un: 'copo', g: 200, medida: 'ml' },
-  { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g' },
+  { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g', passo: 30 },
 ];
 
 // campos: dist = distância em km · distm = distância em metros · incl = inclinação da esteira (%)
@@ -644,6 +644,7 @@ function telaHoje() {
               : macros(r)}</div>
           </div>
           <div class="right num">${fmt(r.kcal)}<small>kcal ${pc(r.kcal, 'kcal')}</small></div>
+          <button class="del edit" data-action="edit-ref" data-id="${esc(r.id)}" aria-label="Editar">✎</button>
           <button class="del" data-action="del" data-tipo="refeicoes" data-id="${esc(r.id)}" aria-label="Excluir">${ICON.x}</button>
         </div>`).join('')}
       </div>`;
@@ -1384,16 +1385,68 @@ function recentes() {
 }
 
 function sheetRefeicao() {
-  form = { tipo: 'refeicao', data: ui.view === 'hoje' ? ui.dia : hoje(), refeicao: refeicaoPorHora(), food: null, gramas: 100, manual: false, busca: '', adicionados: [], pratos: novosPratos() };
+  const refeicao = refeicaoPorHora();
+  const lista = listaPratos(refeicao);
+  form = { tipo: 'refeicao', data: ui.view === 'hoje' ? ui.dia : hoje(), refeicao, food: null, gramas: 100, manual: false, busca: '', adicionados: [], lista, pratos: novosPratos(lista) };
   renderRefeicao();
 }
-function novosPratos() { return PRATOS.map((p) => ({ q: '', modo: p.padrao || 'g' })); }
+function novosPratos(lista) { return lista.map((p) => ({ q: '', modo: p.padrao || 'g' })); }
+// "Ovos (2 un)" -> "Ovos"
+function baseNome(rot) { return String(rot).replace(/\s*\([^)]*\)\s*$/, '').trim(); }
+// Pratos da tela de refeição: os fixos, ordenados pelo que você mais lança nessa refeição,
+// mais alimentos fora da lista que você repete (2+ vezes) nela.
+function listaPratos(refeicao) {
+  const cont = {}, nomes = {};
+  for (const r of S.refeicoes) {
+    if (r.refeicao !== refeicao) continue;
+    const b = baseNome(r.alimento), k = norm(b);
+    cont[k] = (cont[k] || 0) + 1; nomes[k] = b;
+  }
+  const fixos = PRATOS.map((p, i) => ({ p, i, c: cont[norm(p.nome)] || 0 })).sort((a, b) => b.c - a.c || a.i - b.i).map((x) => x.p);
+  const fixosK = new Set(PRATOS.map((p) => norm(p.nome)));
+  const extras = Object.keys(cont).filter((k) => !fixosK.has(k) && cont[k] >= 2 && alimentoPorNome(nomes[k]))
+    .sort((a, b) => cont[b] - cont[a]).slice(0, 3).map((k) => ({ nome: nomes[k], food: nomes[k] }));
+  return [...fixos, ...extras];
+}
+function passoPrato(p, st) { return st.modo === 'un' ? 1 : (p.passo || (p.medida === 'ml' ? 100 : 50)); }
+// Última vez (em outro dia) em que você lançou esta refeição
+function ultimaRefeicao(refeicao, dataAtual) {
+  // só conta lançamentos que dá para refazer (alimento conhecido e com gramas)
+  const ok = (r) => r.refeicao === refeicao && r.data !== dataAtual && r.data <= hoje() && num(r.gramas) > 0 && alimentoPorNome(PRATOS.find((p) => norm(p.nome) === norm(baseNome(r.alimento)))?.food || baseNome(r.alimento));
+  const datas = S.refeicoes.filter(ok).map((r) => r.data).sort();
+  const d = datas[datas.length - 1];
+  if (!d) return null;
+  return { data: d, itens: S.refeicoes.filter((r) => ok(r) && r.data === d) };
+}
+function repetirRefeicao() {
+  const f = form;
+  f.data = $('#fData')?.value || f.data;
+  const u = ultimaRefeicao(f.refeicao, f.data);
+  if (!u) return;
+  let n = 0;
+  for (const r of u.itens) {
+    const b = baseNome(r.alimento);
+    let i = f.lista.findIndex((p) => norm(p.nome) === norm(b));
+    if (i < 0) {
+      if (!alimentoPorNome(b)) continue;
+      f.lista.push({ nome: b, food: b }); f.pratos.push({ q: '', modo: 'g' }); i = f.lista.length - 1;
+    }
+    const p = f.lista[i], st = f.pratos[i];
+    const m = String(r.alimento).match(/\(([\d.,]+)\s*([^)]*)\)\s*$/);
+    if (p.un && m && norm(m[2]).startsWith(norm(p.un))) { st.modo = 'un'; st.q = String(num(m[1])); }
+    else if (num(r.gramas) > 0) { st.modo = 'g'; st.q = String(num(r.gramas)); }
+    else continue;
+    n++;
+  }
+  renderRefeicao();
+  toast(n ? `Repetido: ${n} ${n === 1 ? 'item' : 'itens'} de ${u.data.slice(8)}/${u.data.slice(5, 7)}` : 'Nada para repetir');
+}
 function alimentoPorNome(nome) {
   const n = norm(nome);
   return todosAlimentos().find((a) => norm(a.nome) === n);
 }
 function calcPrato(i) {
-  const p = PRATOS[i], st = form.pratos[i], fd = alimentoPorNome(p.food);
+  const p = form.lista[i], st = form.pratos[i], fd = alimentoPorNome(p.food);
   const q = num(st.q);
   if (!fd || !(q > 0)) return null; // ignora vazio, zero e negativo
   const g = st.modo === 'un' ? q * p.g : q;
@@ -1401,16 +1454,19 @@ function calcPrato(i) {
   return { nome: p.nome, gramas: r1(g), q, modo: st.modo, kcal: Math.round(fd.kcal * k), prot: r1(fd.prot * k), carb: r1(fd.carb * k), gord: r1(fd.gord * k), fibra: r1(fd.fibra * k) };
 }
 function htmlPratos() {
+  const ultima = ultimaRefeicao(form.refeicao, form.data);
   return `<div class="pratos">
     <div class="pratos-h"><span class="lbl-t">Pratos</span>
       <div class="seg" style="width:160px">${[['meta', '% meta'], ['dia', '% dia']].map(([k, r]) => `<button class="${ui.pctModo === k ? 'on' : ''}" data-action="pct-modo-pratos" data-v="${k}">${r}</button>`).join('')}</div>
     </div>
-    ${PRATOS.map((p, i) => {
+    <div class="pbusca"><input class="input" id="pBusca" placeholder="Buscar alimento… (ex.: pão, banana)" autocomplete="off"><div id="pRes"></div></div>
+    ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
+    ${form.lista.map((p, i) => {
       const fd = alimentoPorNome(p.food), st = form.pratos[i];
       const un = st.modo === 'un' ? p.un : (p.medida || 'g');
       return `<div class="prato">
         <div class="pn"><b>${esc(p.nome)}</b><small class="num">${!fd ? 'não encontrado' : p.un ? `1 ${p.un} = ${p.g} ${p.medida || 'g'}` : fmt(fd.kcal) + ' kcal/100 g'}</small></div>
-        <input class="input num pq" id="pq_${i}" type="number" inputmode="decimal" min="0" step="any" placeholder="0" value="${esc(st.q)}">
+        <div class="pstep"><button class="stp" data-action="p-step" data-i="${i}" data-d="-1" aria-label="Diminuir">−</button><input class="input num pq" id="pq_${i}" type="number" inputmode="decimal" min="0" step="any" placeholder="0" value="${esc(st.q)}"><button class="stp" data-action="p-step" data-i="${i}" data-d="1" aria-label="Aumentar">+</button></div>
         ${p.un
           ? `<div class="pu-seg">${['un', 'g'].map((m) => `<button class="${st.modo === m ? 'on' : ''}" data-action="p-modo" data-i="${i}" data-m="${m}">${m === 'un' ? p.un : (p.medida || 'g')}</button>`).join('')}</div>`
           : `<span class="pu fixo">${un}</span>`}
@@ -1423,7 +1479,7 @@ function htmlPratos() {
 }
 function atualizarPratos() {
   let tot = { kcal: 0, prot: 0, carb: 0, gord: 0, fibra: 0 }, n = 0;
-  const itens = PRATOS.map((_, i) => calcPrato(i));
+  const itens = form.lista.map((_, i) => calcPrato(i));
   for (const r of itens) if (r) { n++; for (const k in tot) tot[k] += r[k]; }
   // % da meta: sobre a meta do dia (calorias e carbo: alvo/referência; proteína e gordura: meio da faixa; fibra: mínimo)
   // % do dia: sobre o total do dia já lançado + estes pratos
@@ -1436,7 +1492,7 @@ function atualizarPratos() {
     : pctDia(v, M[k]);
   const item = (v, un, k) => `<span><b>${fmt(v)}</b> ${un} ${pc(v, k)}</span>`;
   const linha = (r) => item(r.kcal, 'kcal', 'kcal') + item(r.prot, 'g prot', 'prot') + item(r.carb, 'g carb', 'carb') + item(r.gord, 'g gord', 'gord') + item(r.fibra, 'g fibra', 'fibra');
-  PRATOS.forEach((p, i) => {
+  form.lista.forEach((p, i) => {
     const r = itens[i], el = $('#pk_' + i);
     if (el) { el.innerHTML = r ? linha(r) : ''; el.hidden = !r; }
   });
@@ -1450,17 +1506,17 @@ function atualizarPratos() {
 function addPratos() {
   const f = form;
   f.data = $('#fData')?.value || f.data;
-  const itens = PRATOS.map((_, i) => calcPrato(i)).filter(Boolean);
+  const itens = f.lista.map((_, i) => calcPrato(i)).filter(Boolean);
   if (!itens.length) return;
   let kcal = 0;
   for (const it of itens) {
-    const p = PRATOS.find((x) => x.nome === it.nome);
+    const p = f.lista.find((x) => x.nome === it.nome);
     const rot = it.modo === 'un' ? `${it.nome} (${fmt(it.q, it.q % 1 ? 1 : 0)} ${p.un}${it.q > 1 && p.un !== 'un' ? 's' : ''})` : it.nome;
     adicionar('refeicoes', { data: f.data, hora: f.data === hoje() ? agoraHora() : '', refeicao: f.refeicao, alimento: rot, gramas: it.gramas, kcal: it.kcal, prot: it.prot, carb: it.carb, gord: it.gord, fibra: it.fibra });
     f.adicionados.push(rot); kcal += it.kcal;
   }
   toast(`${itens.length} ${itens.length === 1 ? 'prato adicionado' : 'pratos adicionados'} · ${fmt(kcal)} kcal`);
-  f.pratos = novosPratos();
+  f.pratos = novosPratos(f.lista);
   renderRefeicao();
 }
 function renderRefeicao() {
@@ -1472,7 +1528,7 @@ function renderRefeicao() {
     </div>
     <div class="field"><div class="chips scroll">${REFEICOES.map((r) => `<button class="chip ${f.refeicao === r.k ? 'on' : ''}" data-action="f-ref" data-v="${r.k}">${r.ico} ${r.k}</button>`).join('')}</div></div>
     ${!f.food && !f.manual ? htmlPratos() : ''}
-    <div class="lbl-t" style="margin-top:6px">${f.food || f.manual ? 'Alimento' : 'Outro alimento'}</div>
+    ${f.food || f.manual ? '<div class="lbl-t" style="margin-top:6px">Alimento</div>' : ''}
     <div id="foodArea"></div>
     ${f.adicionados.length ? `<div class="note">✓ Adicionado nesta refeição: ${f.adicionados.map(esc).join(', ')}</div>` : ''}
     ${!f.food && !f.manual && rec.length ? `<div class="field"><span class="lbl-t">Recentes</span><div class="chips">${rec.map((r, i) => `<button class="chip" data-action="f-rec" data-i="${i}">${esc(r.nome)} · ${fmt(r.gramas)}g</button>`).join('')}</div></div>` : ''}
@@ -1505,12 +1561,7 @@ function renderFoodArea() {
     return;
   }
   if (!f.food) {
-    el.innerHTML = `
-      <div class="field">
-        <input class="input" id="fBusca" placeholder="Buscar alimento… (ex.: arroz, frango)" value="${esc(f.busca)}" autocomplete="off">
-        <div id="sugg"></div>
-      </div>`;
-    renderSugestoes();
+    el.innerHTML = `<button class="link" data-action="f-manual" style="margin:2px 0 12px">+ Alimento que não está na busca (digitar os valores)</button>`;
     return;
   }
   const fd = f.food;
@@ -1523,6 +1574,54 @@ function renderFoodArea() {
     <div id="prev"></div>
     <button class="btn" data-action="f-add">Adicionar</button>`;
   atualizarPreview();
+}
+function buscarPratos(texto) {
+  const el = $('#pRes'); if (!el) return;
+  const q = norm(texto.trim());
+  if (!q) { el.innerHTML = ''; form._pres = []; return; }
+  form.busca = texto.trim();
+  const termos = q.split(/\s+/);
+  const res = todosAlimentos().filter((a) => { const n = norm(a.nome); return termos.every((t) => n.includes(t)); })
+    .sort((a, b) => (norm(a.nome).startsWith(q) ? 0 : 1) - (norm(b.nome).startsWith(q) ? 0 : 1)).slice(0, 6);
+  form._pres = res;
+  el.innerHTML = `<div class="sugg">${res.length ? res.map((a, i) => `<button data-action="p-pick" data-i="${i}"><span>${esc(a.nome)}${a.meu ? '<span class="tag">MEU</span>' : ''}</span><small class="num">${fmt(a.kcal)} kcal/100g</small></button>`).join('') : '<div class="hint" style="padding:10px 12px">Nada encontrado.</div>'}
+    <button data-action="f-manual"><span class="link">+ Adicionar "${esc(texto.trim())}" manualmente</span></button></div>`;
+}
+// ---------- Editar lançamento de refeição (refeição, quantidade, horário, data) ----------
+function sheetEditarRef(id) {
+  const r = S.refeicoes.find((x) => x.id === id); if (!r) return;
+  form = { tipo: 'edit', r, refeicao: r.refeicao };
+  const g = num(r.gramas);
+  const refs = REFEICOES.map((x) => x.k); if (!refs.includes(r.refeicao)) refs.unshift(r.refeicao);
+  abrirSheet(`
+    <div class="sheet-h"><h2>Editar lançamento</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="picked" style="margin-bottom:12px"><div><b>${esc(r.alimento)}</b><small class="num">${fmt(r.kcal)} kcal${g ? ' · ' + fmt(g) + ' g' : ''}</small></div></div>
+    <div class="field"><label>Refeição</label><div class="chips scroll">${refs.map((k) => { const R = REFEICOES.find((x) => x.k === k); return `<button class="chip ${r.refeicao === k ? 'on' : ''}" data-action="e-ref" data-v="${esc(k)}">${R ? R.ico + ' ' : ''}${esc(k)}</button>`; }).join('')}</div></div>
+    ${g ? `<div class="field"><label>Quantidade (gramas)</label><input class="input num" id="eGramas" type="number" inputmode="decimal" min="0" step="any" value="${g}"><div class="hint">Calorias e macros acompanham a nova quantidade.</div></div>` : ''}
+    <div class="row3">
+      <div class="field"><label>Data</label><input class="input" id="eData" type="date" value="${esc(r.data)}" max="${hoje()}"></div>
+      <div class="field"><label>Hora</label><input class="input" id="eHora" type="time" value="${esc(r.hora || '')}"></div>
+    </div>
+    <button class="btn" data-action="e-save">Salvar alterações</button>`);
+}
+function salvarEdicaoRef() {
+  const f = form, r = f?.r; if (!r) return;
+  const g0 = num(r.gramas);
+  let g = g0 ? num($('#eGramas')?.value) : 0;
+  if (g0 && !(g > 0)) { toast('Informe a quantidade'); return; }
+  const k = g0 ? g / g0 : 1;
+  let alimento = r.alimento;
+  const m = String(alimento).match(/^(.*?)\s*\(([\d.,]+)\s*([^)]*)\)\s*$/);
+  const p = m && PRATOS.find((x) => norm(x.nome) === norm(m[1]));
+  if (p && p.un && g0 && k !== 1) { const q = r1(g / p.g); alimento = `${m[1]} (${fmt(q, q % 1 ? 1 : 0)} ${p.un}${q > 1 && p.un !== 'un' ? 's' : ''})`; }
+  const novo = {
+    data: $('#eData')?.value || r.data, hora: $('#eHora')?.value || '', refeicao: f.refeicao, alimento,
+    gramas: g0 ? r1(g) : r.gramas, kcal: Math.round(num(r.kcal) * k), prot: r1(num(r.prot) * k), carb: r1(num(r.carb) * k), gord: r1(num(r.gord) * k), fibra: r1(num(r.fibra) * k),
+  };
+  fecharSheet();
+  remover('refeicoes', r.id);
+  adicionar('refeicoes', novo);
+  toast('Lançamento atualizado');
 }
 function renderSugestoes() {
   const el = $('#sugg'); if (!el) return;
@@ -1724,7 +1823,33 @@ document.addEventListener('click', (e) => {
       break;
     }
     // refeição
-    case 'f-ref': form.refeicao = b.dataset.v; form.data = $('#fData')?.value || form.data; document.querySelectorAll('[data-action="f-ref"]').forEach((c) => c.classList.toggle('on', c === b)); break;
+    case 'f-ref':
+      form.refeicao = b.dataset.v; form.data = $('#fData')?.value || form.data;
+      // sem nada digitado, a lista se reordena pelo que você mais lança nessa refeição
+      if (form.lista && !form.pratos.some((s) => num(s.q) > 0) && !form.food && !form.manual) { form.lista = listaPratos(form.refeicao); form.pratos = novosPratos(form.lista); renderRefeicao(); }
+      else document.querySelectorAll('[data-action="f-ref"]').forEach((c) => c.classList.toggle('on', c === b));
+      break;
+    case 'p-step': {
+      const i = Number(b.dataset.i), st = form.pratos[i], p = form.lista[i];
+      const v = Math.max(0, Math.round((num(st.q) + Number(b.dataset.d) * passoPrato(p, st)) * 100) / 100);
+      st.q = v ? String(v) : '';
+      const inp = $('#pq_' + i); if (inp) inp.value = st.q;
+      atualizarPratos();
+      break;
+    }
+    case 'p-pick': {
+      const a = form._pres[Number(b.dataset.i)]; if (!a) break;
+      form.data = $('#fData')?.value || form.data;
+      const i = form.lista.findIndex((p) => norm(p.nome) === norm(a.nome));
+      if (i >= 0) { const st = form.pratos[i]; st.q = String(num(st.q) + passoPrato(form.lista[i], st)); }
+      else { form.lista.unshift({ nome: a.nome, food: a.nome }); form.pratos.unshift({ q: '100', modo: 'g' }); }
+      renderRefeicao();
+      break;
+    }
+    case 'p-repetir': repetirRefeicao(); break;
+    case 'edit-ref': sheetEditarRef(b.dataset.id); break;
+    case 'e-ref': form.refeicao = b.dataset.v; document.querySelectorAll('[data-action="e-ref"]').forEach((c) => c.classList.toggle('on', c === b)); break;
+    case 'e-save': salvarEdicaoRef(); break;
     case 'f-pick': form.food = form._sugg[Number(b.dataset.i)]; form.data = $('#fData')?.value || form.data; renderRefeicao(); setTimeout(() => $('#fGramas')?.select(), 50); break;
     case 'f-rec': { const r = form._rec[Number(b.dataset.i)]; form.food = r; form.gramas = r.gramas; form.data = $('#fData')?.value || form.data; renderRefeicao(); break; }
     case 'f-trocar': form.food = null; renderRefeicao(); setTimeout(() => $('#fBusca')?.focus(), 50); break;
@@ -1757,6 +1882,7 @@ document.addEventListener('input', (e) => {
   }
   const id = e.target.id;
   if (id && id.startsWith('pq_') && form?.pratos) { form.pratos[Number(id.slice(3))].q = e.target.value; atualizarPratos(); }
+  else if (id === 'pBusca' && form?.lista) buscarPratos(e.target.value);
   else if (id === 'fBusca') { form.busca = e.target.value; renderSugestoes(); }
   else if (id === 'fGramas') { form.gramas = num(e.target.value); atualizarPreview(); }
   else if (id && id.startsWith('m_')) atualizarPreview();
