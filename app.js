@@ -1345,12 +1345,12 @@ function renderCalendario() {
 }
 
 // ---------- Confirmação do app (os pop-ups do navegador podem estar bloqueados) ----------
-function confirmar(msg, textoOk, onOk) {
+function confirmar(msg, textoOk, onOk, aviso = 'Essa ação não pode ser desfeita.', perigo = true) {
   confirmar._ok = onOk;
   abrirSheet(`
     <div class="sheet-h"><h2>${esc(msg)}</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
-    <p class="hint" style="margin:-4px 0 18px">Essa ação não pode ser desfeita.</p>
-    <div class="btn-row"><button class="btn ghost" data-action="fechar">Cancelar</button><button class="btn btn-perigo" data-action="conf-ok">${esc(textoOk)}</button></div>`);
+    ${aviso ? `<p class="hint" style="margin:-4px 0 18px">${esc(aviso)}</p>` : ''}
+    <div class="btn-row"><button class="btn ghost" data-action="fechar">Cancelar</button><button class="btn ${perigo ? 'btn-perigo' : ''}" data-action="conf-ok">${esc(textoOk)}</button></div>`);
 }
 
 function sheetMenu() {
@@ -1411,8 +1411,7 @@ function listaPratos(refeicao) {
 function passoPrato(p, st) { return st.modo === 'un' ? 1 : (p.passo || (p.medida === 'ml' ? 100 : 50)); }
 // Última vez (em outro dia) em que você lançou esta refeição
 function ultimaRefeicao(refeicao, dataAtual) {
-  // só conta lançamentos que dá para refazer (alimento conhecido e com gramas)
-  const ok = (r) => r.refeicao === refeicao && r.data !== dataAtual && r.data <= hoje() && num(r.gramas) > 0 && alimentoPorNome(PRATOS.find((p) => norm(p.nome) === norm(baseNome(r.alimento)))?.food || baseNome(r.alimento));
+  const ok = (r) => r.refeicao === refeicao && r.data !== dataAtual && r.data <= hoje();
   const datas = S.refeicoes.filter(ok).map((r) => r.data).sort();
   const d = datas[datas.length - 1];
   if (!d) return null;
@@ -1423,23 +1422,41 @@ function repetirRefeicao() {
   f.data = $('#fData')?.value || f.data;
   const u = ultimaRefeicao(f.refeicao, f.data);
   if (!u) return;
-  let n = 0;
-  for (const r of u.itens) {
-    const b = baseNome(r.alimento);
-    let i = f.lista.findIndex((p) => norm(p.nome) === norm(b));
-    if (i < 0) {
-      if (!alimentoPorNome(b)) continue;
-      f.lista.push({ nome: b, food: b }); f.pratos.push({ q: '', modo: 'g' }); i = f.lista.length - 1;
+  const dd = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
+  const kcal = u.itens.reduce((s, r) => s + num(r.kcal), 0);
+  const dest = f.data, refeicao = f.refeicao;
+  confirmar(`Lançar de novo ${refeicao.toLowerCase()} de ${dd(u.data)} em ${dd(dest)}? ${u.itens.length} ${u.itens.length === 1 ? 'item' : 'itens'} · ${fmt(kcal)} kcal`, 'Lançar', () => {
+    for (const r of u.itens) {
+      adicionar('refeicoes', { data: dest, hora: dest === hoje() ? agoraHora() : '', refeicao, alimento: r.alimento, gramas: r.gramas, kcal: r.kcal, prot: r.prot, carb: r.carb, gord: r.gord, fibra: r.fibra });
     }
-    const p = f.lista[i], st = f.pratos[i];
-    const m = String(r.alimento).match(/\(([\d.,]+)\s*([^)]*)\)\s*$/);
-    if (p.un && m && norm(m[2]).startsWith(norm(p.un))) { st.modo = 'un'; st.q = String(num(m[1])); }
-    else if (num(r.gramas) > 0) { st.modo = 'g'; st.q = String(num(r.gramas)); }
-    else continue;
-    n++;
+    toast(`${u.itens.length} ${u.itens.length === 1 ? 'item lançado' : 'itens lançados'} · ${fmt(kcal)} kcal`);
+  }, u.itens.map((r) => r.alimento).join(', '), false);
+}
+
+// ---------- Combos (neste aparelho) ----------
+function lerCombos() { try { const c = JSON.parse(localStorage.getItem('vitta:combos') || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
+function gravarCombos(c) { try { localStorage.setItem('vitta:combos', JSON.stringify(c)); } catch { /* sem armazenamento */ } }
+function salvarCombo() {
+  const f = form;
+  const itens = f.lista.map((p, i) => ({ nome: p.nome, q: f.pratos[i].q, modo: f.pratos[i].modo })).filter((x) => num(x.q) > 0);
+  if (!itens.length) return;
+  const nome = (window.prompt('Nome do combo (ex.: Ceia de sempre)') || '').trim();
+  if (!nome) return;
+  const c = lerCombos().filter((x) => norm(x.nome) !== norm(nome));
+  c.push({ nome, itens });
+  gravarCombos(c);
+  f.data = $('#fData')?.value || f.data;
+  renderRefeicao(); toast(`Combo "${nome}" salvo`);
+}
+function aplicarCombo(i) {
+  const f = form, c = lerCombos()[i]; if (!c) return;
+  f.data = $('#fData')?.value || f.data;
+  for (const it of c.itens) {
+    let k = f.lista.findIndex((p) => norm(p.nome) === norm(it.nome));
+    if (k < 0) { if (!alimentoPorNome(it.nome)) continue; f.lista.push({ nome: it.nome, food: it.nome }); f.pratos.push({ q: '', modo: 'g' }); k = f.lista.length - 1; }
+    f.pratos[k].q = String(it.q); f.pratos[k].modo = it.modo;
   }
   renderRefeicao();
-  toast(n ? `Repetido: ${n} ${n === 1 ? 'item' : 'itens'} de ${u.data.slice(8)}/${u.data.slice(5, 7)}` : 'Nada para repetir');
 }
 function alimentoPorNome(nome) {
   const n = norm(nome);
@@ -1460,7 +1477,10 @@ function htmlPratos() {
       <div class="seg" style="width:160px">${[['meta', '% meta'], ['dia', '% dia']].map(([k, r]) => `<button class="${ui.pctModo === k ? 'on' : ''}" data-action="pct-modo-pratos" data-v="${k}">${r}</button>`).join('')}</div>
     </div>
     <div class="pbusca"><input class="input" id="pBusca" placeholder="Buscar alimento… (ex.: pão, banana)" autocomplete="off"><div id="pRes"></div></div>
-    ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
+    <div class="p-atalhos">
+      ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
+      ${lerCombos().map((c, i) => `<span class="combo"><button data-action="p-combo" data-i="${i}">★ ${esc(c.nome)}</button><button class="cx" data-action="p-combo-del" data-i="${i}" aria-label="Excluir combo">×</button></span>`).join('')}
+    </div>
     ${form.lista.map((p, i) => {
       const fd = alimentoPorNome(p.food), st = form.pratos[i];
       const un = st.modo === 'un' ? p.un : (p.medida || 'g');
@@ -1475,6 +1495,7 @@ function htmlPratos() {
     }).join('')}
     <div class="pratos-tot" id="pTot"></div>
     <button class="btn" data-action="p-add" id="pAdd" disabled>Adicionar pratos</button>
+    <button class="link p-save" data-action="p-combo-save" id="pCombo" hidden>★ Salvar esta seleção como combo</button>
   </div>`;
 }
 function atualizarPratos() {
@@ -1501,6 +1522,7 @@ function atualizarPratos() {
     ? (jaDia.n ? `% do dia: sobre o que já foi lançado (${fmt(jaDia.kcal)} kcal) + estes pratos` : '% do dia: sobre o total do dia (estes pratos)')
     : '% da meta do dia';
   if (t) t.innerHTML = n ? `<div class="pk num">${linha(tot)}</div><span class="num">${legenda}</span>` : '';
+  const cb = $('#pCombo'); if (cb) cb.hidden = !n;
   if (b) { b.disabled = !n; b.textContent = n ? `Adicionar ${n} ${n === 1 ? 'prato' : 'pratos'}` : 'Adicionar pratos'; }
 }
 function addPratos() {
@@ -1847,6 +1869,14 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'p-repetir': repetirRefeicao(); break;
+    case 'p-combo': aplicarCombo(Number(b.dataset.i)); break;
+    case 'p-combo-save': salvarCombo(); break;
+    case 'p-combo-del': {
+      const i = Number(b.dataset.i), c = lerCombos(), alvo = c[i]; if (!alvo) break;
+      const dataF = $('#fData')?.value || form.data;
+      c.splice(i, 1); gravarCombos(c); form.data = dataF; renderRefeicao(); toast('Combo excluído');
+      break;
+    }
     case 'edit-ref': sheetEditarRef(b.dataset.id); break;
     case 'e-ref': form.refeicao = b.dataset.v; document.querySelectorAll('[data-action="e-ref"]').forEach((c) => c.classList.toggle('on', c === b)); break;
     case 'e-save': salvarEdicaoRef(); break;
