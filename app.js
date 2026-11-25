@@ -89,6 +89,47 @@ function calcTreino(T, ex, peso) {
   T.exercicios.forEach((e, i) => { if (exMarcado(T, ex, i)) { n++; min += T.minEx; kcal += e.met * peso * T.minEx / 60; } });
   return { n, min: Math.round(min), kcal: Math.round(kcal) };
 }
+
+// Cargas por exercício: ficam no fim do campo "obs" da atividade (assim sincronizam com a planilha sem mudar nada lá).
+// Formato: "<nota> ‖ cargas: Supino reto com barra=60x10; Rosca concentrada=12.5x12"
+const CG_MARCA = ' ‖ cargas: ';
+function sepObs(obs) {
+  const s = String(obs || ''), i = s.indexOf(CG_MARCA);
+  if (i < 0) return { nota: s, cargas: [] };
+  const cargas = s.slice(i + CG_MARCA.length).split('; ').map((p) => {
+    const m = p.match(/^(.+)=([\d.]+)x(\d+)$/);
+    return m ? { n: m[1], c: Number(m[2]), r: Number(m[3]) } : null;
+  }).filter(Boolean);
+  return { nota: s.slice(0, i), cargas };
+}
+// nome do exercício → lista cronológica [{ data, c, r }]
+function historicoCargas() {
+  const h = {};
+  [...S.atividades].sort((a, b) => (a.data + (a.criadoEm || '')).localeCompare(b.data + (b.criadoEm || ''))).forEach((a) => {
+    sepObs(a.obs).cargas.forEach((x) => { (h[x.n] = h[x.n] || []).push({ data: a.data, c: x.c, r: x.r }); });
+  });
+  return h;
+}
+// carga/reps vigentes de um exercício no formulário: o que foi digitado, senão a última vez
+function cargaForm(a, i, hist) {
+  const T = TREINOS[a.treino], e = T.exercicios[i], dig = (a.cg && a.cg[i]) || {};
+  const h = hist[e.n], ult = h ? h[h.length - 1] : null;
+  return {
+    c: dig.c !== undefined ? dig.c : (ult ? String(ult.c).replace('.', ',') : ''),
+    r: dig.r !== undefined ? dig.r : (ult ? String(ult.r) : ''),
+    ult,
+  };
+}
+function stringCargas(a) {
+  const T = TREINOS[a.treino]; if (!T || !T.exercicios.length) return '';
+  const hist = historicoCargas(), partes = [];
+  T.exercicios.forEach((e, i) => {
+    if (!exMarcado(T, a.ex, i)) return;
+    const v = cargaForm(a, i, hist), c = num(v.c), r = Math.round(num(v.r));
+    if (c > 0 || r > 0) partes.push(`${e.n}=${r1(c)}x${r}`);
+  });
+  return partes.length ? CG_MARCA + partes.join('; ') : '';
+}
 // Sugere o próximo treino do rodízio A → B → C a partir do último lançado.
 function proximoTreino() {
   const ult = [...S.atividades].filter((a) => /^Treino [ABC]$/.test(a.intensidade || ''))
@@ -691,7 +732,8 @@ function telaHoje() {
           num(a.distancia) ? (a.tipo === 'Natação' ? fmt(num(a.distancia) * 1000) + ' m' : fmt(a.distancia, 2) + ' km') : '',
           num(a.nivel) ? ((a.tipo === 'Caminhada' || a.tipo === 'Corrida') ? fmt(a.nivel, 1) + '% incl.' : 'nível ' + fmt(a.nivel)) : '',
           a.intensidade ? esc(/^Treino/.test(a.intensidade) ? a.intensidade : String(a.intensidade).toLowerCase()) : '',
-          a.obs ? esc(a.obs) : '',
+          a.obs ? esc(sepObs(a.obs).nota) : '',
+          sepObs(a.obs).cargas.length ? `🏋️ ${sepObs(a.obs).cargas.length} cargas` : '',
         ].filter(Boolean).join(' · ')}</small></div>
         <div class="right num">${fmt(a.kcal)}<small>kcal</small></div>
         <button class="del" data-action="del" data-tipo="atividades" data-id="${esc(a.id)}" aria-label="Excluir">${ICON.x}</button>
@@ -838,6 +880,12 @@ function resumoSemana(r) {
   const detAtv = [r.diasAtivos ? `${r.diasAtivos} dia${r.diasAtivos === 1 ? '' : 's'}` : '', r.minTot ? fmt(r.minTot) + ' min' : '', r.kmTot ? fmt(r.kmTot, 1) + ' km' : ''].filter(Boolean).join(' · ');
   linhas.push(`<div><span>🔥 Gastou em atividades<small>${detAtv || 'nenhuma atividade'}</small></span><strong class="num">${r.kcalAtv ? fmt(r.kcalAtv) + ' kcal' : '—'}</strong></div>`);
 
+  // 3b) Treinos de musculação e proteína
+  const muscu = S.atividades.filter((a) => a.data >= r.ini && a.data <= r.fim && a.tipo === 'Musculação');
+  const letras = muscu.map((a) => (/^Treino ([ABC])$/.exec(a.intensidade || '') || [])[1]).filter(Boolean).join(' · ');
+  linhas.push(`<div><span>💪 Treinos de musculação<small>${muscu.length ? (letras ? 'Treinos ' + letras : 'registrados') : (parcial ? 'nenhum até agora' : 'nenhum na semana')}</small></span><strong class="num">${muscu.length}</strong></div>`);
+  if (r.media.prot) linhas.push(`<div><span>🥩 Proteína por dia<small>meta ${rotuloMeta(MACROS[1], r.metaMedia.prot)}</small></span><strong class="num s-${avaliar(r.metaMedia.prot, r.media.prot)}">${fmt(r.media.prot)} g</strong></div>`);
+
   // 4) Peso: da segunda desta semana até a segunda seguinte
   let pesoTxt, pesoSub, pesoCls = '';
   if (r.varPeso != null) {
@@ -928,7 +976,82 @@ function resumoAtividades(dias, t0) {
     <div class="atv-dias">${linhas}</div>
   </div>`;
 }
-const ICO_MOVE = '<svg viewBox="0 0 24 24"><path d="M3 12h3l3-7 4 14 3-7h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// ---------- Frequência de treino (calendário do mês) ----------
+// dia → { letras: ['A'…], muscu: bool, outro: bool }
+function diasTreinados() {
+  const m = {};
+  for (const a of S.atividades) {
+    const d = m[a.data] || (m[a.data] = { letras: [], muscu: false, outro: false });
+    if (a.tipo === 'Musculação') {
+      d.muscu = true;
+      const l = /^Treino ([ABC])$/.exec(a.intensidade || ''); if (l) d.letras.push(l[1]);
+    } else if (a.tipo === 'Planilha') {
+      if (num(a.kcal) > 0 && !/^Descanso/i.test(a.obs || '')) {
+        const l = /Treino\s*([ABC])/i.exec(a.obs || '');
+        if (l) { d.muscu = true; d.letras.push(l[1].toUpperCase()); } else d.outro = true;
+      }
+    } else d.outro = true;
+  }
+  return m;
+}
+function cardFrequencia(t0) {
+  const ym = ui.freqMes || t0.slice(0, 7);
+  const [y, mo] = ym.split('-').map(Number);
+  const mapa = diasTreinados();
+  const primeiro = new Date(y, mo - 1, 1), nDiasMes = new Date(y, mo, 0).getDate();
+  const offset = (primeiro.getDay() + 6) % 7;
+  let nMuscu = 0, nAtivos = 0;
+  const cel = [];
+  for (let i = 0; i < offset; i++) cel.push('<span class="fq-v"></span>');
+  for (let d = 1; d <= nDiasMes; d++) {
+    const s = `${y}-${pad(mo)}-${pad(d)}`, x = mapa[s];
+    if (x && x.muscu) nMuscu++;
+    if (x && (x.muscu || x.outro)) nAtivos++;
+    const cls = x && x.muscu ? 'm' : x && x.outro ? 'o' : '';
+    cel.push(`<span class="fq-d ${cls} ${s === t0 ? 'hoje' : ''} ${s > t0 ? 'fut' : ''}"><i>${d}</i>${x && x.letras.length ? `<b>${[...new Set(x.letras)].join('')}</b>` : cls === 'm' ? '<b>●</b>' : cls === 'o' ? '<b>·</b>' : ''}</span>`);
+  }
+  // há quantos dias o último treino de musculação (em todo o histórico)
+  const dm = Object.keys(mapa).filter((s) => mapa[s].muscu && s <= t0).sort();
+  const ult = dm[dm.length - 1];
+  const dias = ult ? Math.round((parse(t0) - parse(ult)) / 864e5) : null;
+  let aviso = '';
+  if (dias == null) aviso = 'Nenhum treino de musculação registrado ainda.';
+  else if (dias >= 4) aviso = `<span class="s-warn">⚠️ Faz ${dias} dias que você não treina musculação (último: ${dataCurta(ult)}).</span>`;
+  else aviso = dias === 0 ? 'Treinou hoje 💪' : `Último treino de musculação: ${dias === 1 ? 'ontem' : 'há ' + dias + ' dias'}.`;
+  const mesAtual = ym === t0.slice(0, 7);
+  const passados = mesAtual ? Number(t0.slice(8)) : nDiasMes;
+  const porSem = passados ? (nMuscu / passados * 7) : 0;
+  return `<div class="card">
+    <div class="card-h"><h3>Frequência de treino</h3><span class="sub">${MESES[mo - 1]} ${y}</span></div>
+    <div class="datenav" style="margin:0 0 8px">
+      <button class="iconbtn" data-action="freq-mes" data-n="-1" aria-label="Mês anterior">${ICON.left}</button>
+      <div class="lbl"><b>${nMuscu} treino${nMuscu === 1 ? '' : 's'} de musculação</b><small>${nAtivos} dia${nAtivos === 1 ? '' : 's'} ativo${nAtivos === 1 ? '' : 's'} · média ${fmt(porSem, 1)}/semana</small></div>
+      <button class="iconbtn" data-action="freq-mes" data-n="1" ${mesAtual ? 'disabled' : ''} aria-label="Próximo mês">${ICON.right}</button>
+    </div>
+    <div class="fq-grid">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((x) => `<span class="fq-h">${x}</span>`).join('')}${cel.join('')}</div>
+    <div class="hint" style="margin-top:8px">Letra = treino A/B/C · ● musculação · · outra atividade. ${aviso}</div>
+  </div>`;
+}
+
+// ---------- Evolução das cargas por exercício ----------
+function cardCargas() {
+  const h = historicoCargas();
+  const grupos = Object.keys(TREINOS).map((k) => {
+    const lin = TREINOS[k].exercicios.filter((e) => h[e.n]).map((e) => {
+      const l = h[e.n], u = l[l.length - 1], p = l.length > 1 ? l[l.length - 2] : null;
+      const dif = p ? u.c - p.c : 0;
+      const trilha = l.slice(-5).map((x) => fmt(x.c, x.c % 1 ? 1 : 0)).join(' → ');
+      return `<div class="cg-l"><div><b>${esc(e.n)}</b><small>${trilha}${l.length > 5 ? ' (últimas 5)' : ''}</small></div>
+        <span class="num">${fmt(u.c, u.c % 1 ? 1 : 0)} kg${u.r ? ' × ' + u.r : ''}${p ? `<small class="${dif > 0 ? 's-good' : dif < 0 ? 's-warn' : ''}">${dif > 0 ? '▲ +' + fmt(dif, 1) : dif < 0 ? '▼ ' + fmt(dif, 1) : '= igual'}</small>` : ''}</span></div>`;
+    }).join('');
+    return lin ? `<details class="cg-g"><summary>Treino ${k} <small>${TREINOS[k].grupos}</small></summary>${lin}</details>` : '';
+  }).join('');
+  return `<div class="card">
+    <div class="card-h"><h3>Evolução das cargas</h3><span class="sub">por exercício</span></div>
+    ${grupos || '<div class="empty">Registre os treinos A/B/C com carga e repetições para acompanhar a evolução aqui.</div>'}
+  </div>`;
+}
+const ICO_MOVE ='<svg viewBox="0 0 24 24"><path d="M3 12h3l3-7 4 14 3-7h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function telaSemana() {
   const ini = inicioSemana(ui.semanaRef), fim = addDias(ini, 6);
@@ -997,6 +1120,10 @@ function telaSemana() {
 
   ${resumoAtividades(dias, t0)}
 
+  ${cardFrequencia(t0)}
+
+  ${cardCargas()}
+
   <div class="card">
     <div class="card-h"><h3>Média diária × Meta</h3><span class="sub">dias com registro</span></div>
     ${nDias && nMac < nDias ? `<div class="hint" style="margin:-4px 0 10px">${nMac ? `Macros: média de ${nMac} dia${nMac === 1 ? '' : 's'} com detalhamento.` : 'Esta semana veio da planilha só com calorias; os macros não foram registrados.'}</div>` : ''}
@@ -1054,6 +1181,12 @@ function jornadaPeso(todos, r) {
     if (falta > 0 && ritmo > 0.05) {
       const semFalta = Math.ceil(falta / ritmo);
       prev = `no ritmo atual (${fmt(ritmo, 1)} kg/sem), ~${semFalta} semana${semFalta === 1 ? '' : 's'} · por volta de ${dataCurta(addDias(ult.data, semFalta * 7))}`;
+      // segunda estimativa: pelo déficit planejado (7.700 kcal ≈ 1 kg)
+      const defPlan = num(S.config.deficit);
+      if (defPlan > 0) {
+        const kgSem = defPlan * 7 / 7700, semPlan = Math.ceil(falta / kgSem);
+        prev += `<br>pelo déficit planejado (${fmt(kgSem, 2)} kg/sem), ~${semPlan} semana${semPlan === 1 ? '' : 's'} · por volta de ${dataCurta(addDias(ult.data, semPlan * 7))}`;
+      }
     } else if (falta <= 0) prev = 'meta atingida 🎉';
     linhas.push(`<div><span>🎯 Falta para a meta<small>${prev || `meta de ${fmt(r.meta, 1)} kg`}</small></span><strong class="num">${falta > 0 ? fmt(falta, 1) + ' kg' : '✓'}</strong></div>`);
   } else {
@@ -1879,7 +2012,7 @@ function addRefeicao() {
 
 function pesoRef() { return pesoAtual() || 70; }
 function sheetAtividade() {
-  form = { tipo: 'atividade', data: ui.view === 'hoje' ? ui.dia : hoje(), a: { tipo: 'Musculação', treino: proximoTreino(), ex: {}, min: '', dist: '', nivel: '', intens: 'Moderada', nome: '' } };
+  form = { tipo: 'atividade', data: ui.view === 'hoje' ? ui.dia : hoje(), a: { tipo: 'Musculação', treino: proximoTreino(), ex: {}, cg: {}, min: '', dist: '', nivel: '', intens: 'Moderada', nome: '' } };
   abrirSheet(`
     <div class="sheet-h"><h2>Atividade física</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
     <div class="field"><div class="chips">${ATIVIDADES.map((a) => `<button class="chip ${a.k === form.a.tipo ? 'on' : ''}" data-action="a-tipo" data-v="${a.k}">${a.ico} ${a.k}</button>`).join('')}</div></div>
@@ -1903,7 +2036,11 @@ function renderCamposAtividade() {
       return `<div class="field"><span class="lbl-t">Treino</span>
         <div class="seg">${[...Object.keys(TREINOS), 'Livre'].map((k) => `<button class="${a.treino === k ? 'on' : ''}" data-action="a-treino" data-v="${k}">${k === 'Livre' ? 'Livre' : 'Treino ' + k}</button>`).join('')}</div>
         <div class="hint">${comTreino ? `${TREINOS[a.treino].grupos} · 4 séries por exercício. Desmarque o que não fez:` : 'Treino fora do rodízio: informe o tempo e a intensidade.'}</div>
-        ${comTreino ? `<div class="exlist">${TREINOS[a.treino].exercicios.map((e, i) => `<button type="button" class="exi ${exMarcado(TREINOS[a.treino], a.ex, i) ? 'on' : ''}" data-action="a-ex" data-v="${i}"><span class="exk">${exMarcado(TREINOS[a.treino], a.ex, i) ? '✓' : ''}</span>${esc(e.n)}</button>`).join('')}</div>` : ''}</div>
+        ${comTreino ? `<div class="exlist">${TREINOS[a.treino].exercicios.map((e, i) => {
+          const on = exMarcado(TREINOS[a.treino], a.ex, i), v = cargaForm(a, i, historicoCargas());
+          return `<div class="exrow"><button type="button" class="exi ${on ? 'on' : ''}" data-action="a-ex" data-v="${i}"><span class="exk">${on ? '✓' : ''}</span>${esc(e.n)}</button>
+            ${on ? `<input class="input num excg" id="cg_${i}" type="number" inputmode="decimal" step="0.5" placeholder="kg" value="${esc(v.c)}" aria-label="Carga em kg"><input class="input num excg" id="rp_${i}" type="number" inputmode="numeric" placeholder="reps" value="${esc(v.r)}" aria-label="Repetições">` : ''}</div>`;
+        }).join('')}</div><div class="hint">Carga (kg) e repetições de cada exercício; já vêm preenchidas com a última vez. Deixe em branco o que não quiser registrar.</div>` : ''}</div>
         ${comTreino ? '' : `<div class="field"><span class="lbl-t">Intensidade</span><div class="seg">${INTENS.map((k) => `<button class="${k === a.intens ? 'on' : ''}" data-action="a-int" data-v="${k}">${k}</button>`).join('')}</div></div>`}`;
     }
     if (c === 'nome') return `<div class="field"><label>Qual atividade?</label><input class="input" id="a_nome" value="${esc(a.nome)}" placeholder="Ex.: Futebol, Yoga, Funcional"></div>`;
@@ -1937,7 +2074,7 @@ function addAtividade() {
     tipo: a.tipo === 'Outros' ? (a.nome.trim() || 'Outros') : a.tipo,
     minutos: T ? (T.exercicios.length ? calcTreino(T, a.ex, pesoRef()).min : T.minutos) : num(a.min), distancia: num(a.dist) || '', nivel: num(a.nivel) || '',
     intensidade: T ? 'Treino ' + a.treino : usaInt ? a.intens : '',
-    kcal: r.kcal, obs: $('#aObs').value.trim() || (T ? T.grupos : ''),
+    kcal: r.kcal, obs: ($('#aObs').value.trim() || (T ? T.grupos : '')) + (T ? stringCargas(a) : ''),
   });
   fecharSheet(); toast(`Atividade registrada · ${fmt(r.kcal)} kcal 💪`);
 }
@@ -1973,6 +2110,7 @@ document.addEventListener('click', (e) => {
     case 'dia': ui.dia = addDias(ui.dia, Number(b.dataset.n)); if (ui.dia > hoje()) ui.dia = hoje(); render(); break;
     case 'ir-hoje': ui.dia = hoje(); render(); break;
     case 'semana': ui.semanaRef = addDias(ui.semanaRef, Number(b.dataset.n)); render(); break;
+    case 'freq-mes': { const t = hoje(), [y, m] = (ui.freqMes || t.slice(0, 7)).split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.n), 1); const novo = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; ui.freqMes = novo > t.slice(0, 7) ? t.slice(0, 7) : novo; render(); break; }
     case 'semana-atual': ui.semanaRef = hoje(); render(); break;
     case 'abrir-dia': ui.dia = b.dataset.d; ui.view = 'hoje'; render(); window.scrollTo(0, 0); break;
     case 'peso-range': ui.pesoRange = b.dataset.v; render(); break;
@@ -2092,7 +2230,7 @@ document.addEventListener('click', (e) => {
     case 'p-add': addPratos(); break;
     // atividade
     case 'a-tipo': form.a.tipo = b.dataset.v; form.a.nivel = ''; document.querySelectorAll('[data-action="a-tipo"]').forEach((c) => c.classList.toggle('on', c === b)); renderCamposAtividade(); break;
-    case 'a-treino': form.a.treino = b.dataset.v; form.a.ex = {}; renderCamposAtividade(); break;
+    case 'a-treino': form.a.treino = b.dataset.v; form.a.ex = {}; form.a.cg = {}; renderCamposAtividade(); break;
     case 'a-ex': { const i = +b.dataset.v, T = TREINOS[form.a.treino]; form.a.ex = form.a.ex || {}; form.a.ex[i] = !exMarcado(T, form.a.ex, i); renderCamposAtividade(); break; }
     case 'a-int': form.a.intens = b.dataset.v; document.querySelectorAll('[data-action="a-int"]').forEach((c) => c.classList.toggle('on', c === b)); atualizarCalc(); break;
     case 'a-add': addAtividade(); break;
@@ -2108,6 +2246,10 @@ document.addEventListener('input', (e) => {
   }
   const id = e.target.id;
   if (id && id.startsWith('pq_') && form?.pratos) { form.pratos[Number(id.slice(3))].q = e.target.value; atualizarPratos(); }
+  else if (id && /^(cg|rp)_\d+$/.test(id) && form?.a) {
+    const i = Number(id.slice(3)); form.a.cg = form.a.cg || {}; form.a.cg[i] = form.a.cg[i] || {};
+    form.a.cg[i][id.startsWith('cg') ? 'c' : 'r'] = e.target.value;
+  }
   else if (id === 'pBusca' && form?.lista) buscarPratos(e.target.value);
   else if (id === 'dTexto' && form?.tipo === 'desc') form.texto = e.target.value;
   else if (id && id.startsWith('dg_') && form?.itens) { form.itens[Number(id.slice(3))].gramas = e.target.value; atualizarDescrever(); }
