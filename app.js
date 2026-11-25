@@ -64,11 +64,31 @@ const INTENS = ['Leve', 'Moderada', 'Intensa'];
 // Treinos de musculação. O gasto vem do treino escolhido (MET × peso × duração típica),
 // calibrado nos ~330 kcal por sessão de ~70 min dos seus fechamentos.
 // "exercicios" fica para preencher quando você mandar a ficha de cada treino.
+// Cada exercício: 4 séries com descanso de 1–2 min ≈ minEx minutos; opc = normalmente não faz (vem desmarcado).
 const TREINOS = {
-  A: { grupos: 'Peito e tríceps', minutos: 70, met: 3.32, exercicios: [] },
-  B: { grupos: 'Costas e bíceps', minutos: 70, met: 3.32, exercicios: [] },
-  C: { grupos: 'Ombros, pernas e abdômen', minutos: 70, met: 3.32, exercicios: [] },
+  A: { grupos: 'Peito e tríceps', minutos: 70, met: 3.32, minEx: 10, exercicios: [
+    { n: 'Supino reto com barra', met: 4.0 }, { n: 'Crucifixo inclinado com halteres', met: 3.3 },
+    { n: 'Crucifixo máquina (peck deck)', met: 3.0 }, { n: 'Flexão de braços', met: 4.0 },
+    { n: 'Tríceps testa com barra W', met: 3.3 }, { n: 'Tríceps na polia com corda', met: 3.0 },
+    { n: 'Tríceps francês na polia', met: 3.0 }, { n: 'Abdominal supra', met: 3.3, opc: true } ] },
+  B: { grupos: 'Costas e bíceps', minutos: 70, met: 3.32, minEx: 11.7, exercicios: [
+    { n: 'Puxada aberta barra reta', met: 3.6 }, { n: 'Remada baixa no triângulo', met: 3.6 },
+    { n: 'Remada unilateral com halter', met: 3.4 }, { n: 'Rosca direta barra reta', met: 3.2 },
+    { n: 'Rosca concentrada', met: 2.9 }, { n: 'Rosca direta no banco inclinado', met: 3.1 },
+    { n: 'Abdominal infra / elevação de pernas', met: 3.3, opc: true } ] },
+  C: { grupos: 'Ombros, pernas e abdômen', minutos: 70, met: 3.32, minEx: 10, exercicios: [
+    { n: 'Panturrilha sentado (no lugar do agachamento)', met: 2.8 }, { n: 'Leg press 45°', met: 4.0 },
+    { n: 'Cadeira extensora', met: 3.3 }, { n: 'Cadeira flexora', met: 3.3 },
+    { n: 'Desenvolvimento sentado com barra', met: 3.8 }, { n: 'Crucifixo inverso (banco)', met: 3.0 },
+    { n: 'Elevação lateral com halteres', met: 3.0 }, { n: 'Abdominal oblíquo alternado', met: 3.3, opc: true } ] },
 };
+// exercícios marcados (ex = { índice: true/false } só com o que o usuário alterou)
+function exMarcado(T, ex, i) { const v = ex && ex[i]; return v === undefined ? !T.exercicios[i].opc : v; }
+function calcTreino(T, ex, peso) {
+  let min = 0, kcal = 0, n = 0;
+  T.exercicios.forEach((e, i) => { if (exMarcado(T, ex, i)) { n++; min += T.minEx; kcal += e.met * peso * T.minEx / 60; } });
+  return { n, min: Math.round(min), kcal: Math.round(kcal) };
+}
 // Sugere o próximo treino do rodízio A → B → C a partir do último lançado.
 function proximoTreino() {
   const ult = [...S.atividades].filter((a) => /^Treino [ABC]$/.test(a.intensidade || ''))
@@ -88,6 +108,10 @@ function calcAtividade(f, peso) {
   // Musculação com treino A/B/C: duração e MET vêm do treino
   if (f.tipo === 'Musculação' && TREINOS[f.treino]) {
     const T = TREINOS[f.treino];
+    if (T.exercicios.length) {
+      const r = calcTreino(T, f.ex, peso);
+      return { kcal: r.kcal, met: r.min ? (r.kcal * 60) / (peso * r.min) : 0, info: `Treino ${f.treino}: ${r.n} exercícios × 4 séries · ~${r.min} min` };
+    }
     const min = T.minutos; // o campo de tempo fica escondido para treinos A/B/C
     return { kcal: Math.round(T.met * peso * min / 60), met: T.met, info: `Treino ${f.treino}: ${T.grupos.toLowerCase()} · ~${min} min` };
   }
@@ -1855,7 +1879,7 @@ function addRefeicao() {
 
 function pesoRef() { return pesoAtual() || 70; }
 function sheetAtividade() {
-  form = { tipo: 'atividade', data: ui.view === 'hoje' ? ui.dia : hoje(), a: { tipo: 'Musculação', treino: proximoTreino(), min: '', dist: '', nivel: '', intens: 'Moderada', nome: '' } };
+  form = { tipo: 'atividade', data: ui.view === 'hoje' ? ui.dia : hoje(), a: { tipo: 'Musculação', treino: proximoTreino(), ex: {}, min: '', dist: '', nivel: '', intens: 'Moderada', nome: '' } };
   abrirSheet(`
     <div class="sheet-h"><h2>Atividade física</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
     <div class="field"><div class="chips">${ATIVIDADES.map((a) => `<button class="chip ${a.k === form.a.tipo ? 'on' : ''}" data-action="a-tipo" data-v="${a.k}">${a.ico} ${a.k}</button>`).join('')}</div></div>
@@ -1878,8 +1902,8 @@ function renderCamposAtividade() {
     if (c === 'treino') {
       return `<div class="field"><span class="lbl-t">Treino</span>
         <div class="seg">${[...Object.keys(TREINOS), 'Livre'].map((k) => `<button class="${a.treino === k ? 'on' : ''}" data-action="a-treino" data-v="${k}">${k === 'Livre' ? 'Livre' : 'Treino ' + k}</button>`).join('')}</div>
-        <div class="hint">${comTreino ? `${TREINOS[a.treino].grupos}${TREINOS[a.treino].exercicios.length ? ' · ' + TREINOS[a.treino].exercicios.join(', ') : ''}` : 'Treino fora do rodízio: informe o tempo e a intensidade.'}</div>
-        ${comTreino && !TREINOS[a.treino].exercicios.length ? `<div class="note" style="margin:8px 0 0;font-size:12.5px">📝 Lembrete: falta mandar os exercícios do Treino ${a.treino} para o gasto ser calculado por exercício. Por enquanto vale a média de ~70 min.</div>` : ''}</div>
+        <div class="hint">${comTreino ? `${TREINOS[a.treino].grupos} · 4 séries por exercício. Desmarque o que não fez:` : 'Treino fora do rodízio: informe o tempo e a intensidade.'}</div>
+        ${comTreino ? `<div class="exlist">${TREINOS[a.treino].exercicios.map((e, i) => `<button type="button" class="exi ${exMarcado(TREINOS[a.treino], a.ex, i) ? 'on' : ''}" data-action="a-ex" data-v="${i}"><span class="exk">${exMarcado(TREINOS[a.treino], a.ex, i) ? '✓' : ''}</span>${esc(e.n)}</button>`).join('')}</div>` : ''}</div>
         ${comTreino ? '' : `<div class="field"><span class="lbl-t">Intensidade</span><div class="seg">${INTENS.map((k) => `<button class="${k === a.intens ? 'on' : ''}" data-action="a-int" data-v="${k}">${k}</button>`).join('')}</div></div>`}`;
     }
     if (c === 'nome') return `<div class="field"><label>Qual atividade?</label><input class="input" id="a_nome" value="${esc(a.nome)}" placeholder="Ex.: Futebol, Yoga, Funcional"></div>`;
@@ -1911,7 +1935,7 @@ function addAtividade() {
   adicionar('atividades', {
     data, hora: data === hoje() ? agoraHora() : '',
     tipo: a.tipo === 'Outros' ? (a.nome.trim() || 'Outros') : a.tipo,
-    minutos: T ? T.minutos : num(a.min), distancia: num(a.dist) || '', nivel: num(a.nivel) || '',
+    minutos: T ? (T.exercicios.length ? calcTreino(T, a.ex, pesoRef()).min : T.minutos) : num(a.min), distancia: num(a.dist) || '', nivel: num(a.nivel) || '',
     intensidade: T ? 'Treino ' + a.treino : usaInt ? a.intens : '',
     kcal: r.kcal, obs: $('#aObs').value.trim() || (T ? T.grupos : ''),
   });
@@ -2068,7 +2092,8 @@ document.addEventListener('click', (e) => {
     case 'p-add': addPratos(); break;
     // atividade
     case 'a-tipo': form.a.tipo = b.dataset.v; form.a.nivel = ''; document.querySelectorAll('[data-action="a-tipo"]').forEach((c) => c.classList.toggle('on', c === b)); renderCamposAtividade(); break;
-    case 'a-treino': form.a.treino = b.dataset.v; renderCamposAtividade(); break;
+    case 'a-treino': form.a.treino = b.dataset.v; form.a.ex = {}; renderCamposAtividade(); break;
+    case 'a-ex': { const i = +b.dataset.v, T = TREINOS[form.a.treino]; form.a.ex = form.a.ex || {}; form.a.ex[i] = !exMarcado(T, form.a.ex, i); renderCamposAtividade(); break; }
     case 'a-int': form.a.intens = b.dataset.v; document.querySelectorAll('[data-action="a-int"]').forEach((c) => c.classList.toggle('on', c === b)); atualizarCalc(); break;
     case 'a-add': addAtividade(); break;
     case 'p-add': addPeso(); break;

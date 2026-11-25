@@ -1,4 +1,4 @@
-/* Tema único: escuro, roxo, minimalista */
+﻿/* Tema Ãºnico: escuro, roxo, minimalista */
 :root {
   --bg: #0b0a10;
   --surface: #14121c;
@@ -114,7 +114,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .cal-btn { padding: 4px 10px; border-radius: 10px; }
 .cal-btn:active { background: var(--surface-2); }
 .cal-btn b svg { color: var(--brand); opacity: 1; }
-/* calendário do app */
+/* calendÃ¡rio do app */
 .cal-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .cal-top b { font-size: 16px; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -131,7 +131,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .seg-scroll button { flex: 0 0 auto; white-space: nowrap; padding: 7px 12px; }
 .cascata { overflow-x: auto; margin: 0 -16px; padding: 0 16px; scrollbar-width: thin; }
 .cascata svg { width: auto; max-width: none; display: block; }
-/* modo mês: o gráfico ocupa a largura inteira do card */
+/* modo mÃªs: o grÃ¡fico ocupa a largura inteira do card */
 .cascata.cascata-fit { overflow: visible; margin: 0; padding: 0; }
 .cascata.cascata-fit svg { width: 100%; height: auto; max-height: 460px; }
 /* topo da aba Peso */
@@ -326,7 +326,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .preview b { display: block; font-size: 16px; }
 .preview small { font-size: 11px; color: var(--muted); font-weight: 600; }
 
-/* Seções do dia com identidade própria */
+/* SeÃ§Ãµes do dia com identidade prÃ³pria */
 .sec-food { --acc: var(--brand); }
 .sec-move { --acc: #5cc8e0; }
 .sec {
@@ -385,7 +385,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .prato .pq { padding: 9px 8px; text-align: center; border-radius: 10px; font-size: 16px; }
 .prato .pu { font-size: 12.5px; font-weight: 600; text-align: center; padding: 8px 0; border-radius: 10px; color: var(--muted); }
 .prato button.pu { background: var(--surface-2); color: var(--brand); border: 1px solid var(--line); }
-/* linha de resultado: kcal e proteína com o % da meta do dia */
+/* linha de resultado: kcal e proteÃ­na com o % da meta do dia */
 .pk { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 13px; color: var(--muted); margin-top: -2px; }
 .pk > span { white-space: nowrap; }
 .pk[hidden] { display: none; }
@@ -425,7 +425,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .kv span { color: var(--muted); }
 .note { background: var(--brand-soft); color: var(--text); border-radius: 14px; padding: 12px 14px; font-size: 13.5px; margin-bottom: 14px; }
 
-/* tela de refeição: busca, repetir, passo +/- e editar */
+/* tela de refeiÃ§Ã£o: busca, repetir, passo +/- e editar */
 .prato { grid-template-columns: 1fr auto 84px; }
 .pstep { display: flex; align-items: center; gap: 4px; }
 .pstep .pq { width: 58px; padding: 9px 4px; }
@@ -448,3 +448,10 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 
 .prato.desc { grid-template-columns: 1fr auto 32px; }
 .prato.desc .pq { width: 70px; }
+
+/* checklist de exercÃ­cios do treino */
+.exlist{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.exi{display:flex;align-items:center;gap:10px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line,#3a3350);background:transparent;color:inherit;font:inherit;font-size:14px;opacity:.6}
+.exi.on{opacity:1;border-color:var(--brand);background:var(--brand-soft)}
+.exi .exk{width:20px;height:20px;border-radius:6px;border:1.5px solid currentColor;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+

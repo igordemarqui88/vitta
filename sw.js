@@ -1,6 +1,6 @@
 ﻿// Service worker: deixa o app abrir rápido e funcionar offline.
 // Ao alterar arquivos do app, aumente a versão abaixo para forçar a atualização.
-const CACHE = 'vitta-pub7';
+const CACHE = 'vitta-pub8';
 const ARQUIVOS = [
   './', './index.html', './styles.css', './app.js', './foods.js', './historico.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
@@ -29,5 +29,6 @@ self.addEventListener('fetch', (e) => {
       .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html')))
   );
 });
+
 
 
