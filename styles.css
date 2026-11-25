@@ -441,3 +441,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .combo button { padding: 7px 10px; font-size: 13px; font-weight: 600; color: var(--brand); }
 .combo .cx { padding: 7px 10px 7px 4px; color: var(--muted); font-size: 16px; line-height: 1; }
 .p-save { display: block; margin: 10px auto 0; font-size: 13px; }
+
+.prato.fora { grid-template-columns: 1fr auto; }
+.fora-seg button { padding: 8px 10px; white-space: nowrap; }
+.p-atalhos .p-rep { flex: 1 1 calc(50% - 3px); }

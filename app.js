@@ -620,7 +620,7 @@ function telaHoje() {
   <div class="card sec sec-food">
     <div class="sec-h">
       <span class="sec-ico"><svg viewBox="0 0 24 24"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2.2 0-4 2.5-4 6v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-      <div><h3>Refeições</h3><small>${t.n ? `${t.n} ${t.n === 1 ? 'item' : 'itens'} · ${grupos.length} ${grupos.length === 1 ? 'refeição' : 'refeições'}` : 'nada registrado ainda'}</small></div>
+      <div><h3>Refeições</h3><small>${t.n ? `${t.n} ${t.n === 1 ? 'item' : 'itens'} · ${grupos.length} ${grupos.length === 1 ? 'refeição' : 'refeições'}${(() => { const e = refs.filter((r) => String(r.alimento).includes('≈')).reduce((s, r) => s + num(r.kcal), 0); return e ? ` · ≈ ${fmt(e)} kcal estimadas` : ''; })()}` : 'nada registrado ainda'}</small></div>
       <b class="num">${fmt(t.kcal)}<small>kcal</small></b>
     </div>
     ${grupos.length ? `<div class="seg pct-modo">${[['meta', '% da meta'], ['dia', '% do dia']].map(([k, r]) => `<button class="${ui.pctModo === k ? 'on' : ''}" data-action="pct-modo" data-v="${k}">${r}</button>`).join('')}</div>
@@ -1433,6 +1433,46 @@ function repetirRefeicao() {
   }, u.itens.map((r) => r.alimento).join(', '), false);
 }
 
+// ---------- Comi fora: porções médias estimadas (valores aproximados, tabelas nutricionais brasileiras) ----------
+// Valores do tamanho médio; pequeno = ×0,75 e grande = ×1,25. "tam" troca os rótulos quando o tamanho é em unidades.
+const FORA = [
+  { nome: 'Prato feito (arroz, feijão, carne, salada)', kcal: 800, prot: 40, carb: 95, gord: 25, fibra: 12 },
+  { nome: 'Marmita fitness (frango, arroz, legumes)',   kcal: 550, prot: 40, carb: 60, gord: 14, fibra: 7 },
+  { nome: 'Massa (prato)',                              kcal: 650, prot: 22, carb: 90, gord: 22, fibra: 5 },
+  { nome: 'Pizza', un: 'fatia', fator: [1, 2, 3],        kcal: 520, prot: 22, carb: 60, gord: 22, fibra: 3 },
+  { nome: 'Hambúrguer / lanche',                        kcal: 550, prot: 25, carb: 45, gord: 28, fibra: 2 },
+  { nome: 'Pastel', un: 'un', fator: [1, 2, 3],          kcal: 600, prot: 16, carb: 56, gord: 34, fibra: 3 },
+  { nome: 'Salgado (coxinha, esfiha)', un: 'un', fator: [1, 2, 3], kcal: 500, prot: 16, carb: 56, gord: 24, fibra: 2 },
+  { nome: 'Sanduíche natural',                          kcal: 300, prot: 15, carb: 32, gord: 12, fibra: 3 },
+  { nome: 'Sushi / combinado',                          kcal: 400, prot: 18, carb: 70, gord: 6, fibra: 2 },
+  { nome: 'Açaí (bowl)',                                kcal: 450, prot: 6, carb: 70, gord: 16, fibra: 6 },
+  { nome: 'Sobremesa (fatia de bolo, doce)',            kcal: 350, prot: 5, carb: 50, gord: 14, fibra: 1 },
+];
+function sheetFora() {
+  const f = form;
+  f.data = $('#fData')?.value || f.data;
+  form = { tipo: 'fora', refeicao: f.refeicao, data: f.data };
+  const dd = `${form.data.slice(8)}/${form.data.slice(5, 7)}`;
+  abrirSheet(`
+    <div class="sheet-h"><h2>Comi fora</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="hint" style="margin:-4px 0 10px">Valores médios estimados, lançados em <b>${esc(form.refeicao)}</b> (${dd}) e marcados com ≈. Você pode corrigir as calorias depois, em ✎.</div>
+    ${FORA.map((x, i) => `<div class="prato fora">
+      <div class="pn"><b>${esc(x.nome)}</b><small class="num">≈ ${fmt(x.kcal)} kcal (médio)</small></div>
+      <div class="pu-seg fora-seg">${['P', 'M', 'G'].map((t, j) => `<button data-action="fora-add" data-i="${i}" data-j="${j}">${x.fator ? x.fator[j] + (x.un === 'fatia' ? (x.fator[j] > 1 ? ' fatias' : ' fatia') : ' un') : t}</button>`).join('')}</div>
+    </div>`).join('')}
+    <button class="btn ghost" data-action="fechar" style="margin-top:12px">Cancelar</button>`);
+}
+function addFora(i, j) {
+  const f = form, x = FORA[i]; if (!x) return;
+  const k = x.fator ? x.fator[j] / x.fator[1] : [0.75, 1, 1.25][j];
+  const tam = x.fator ? `${x.fator[j]} ${x.un === 'fatia' ? (x.fator[j] > 1 ? 'fatias' : 'fatia') : 'un'}` : ['pequeno', 'médio', 'grande'][j];
+  const nome = `${x.nome} (${tam}) ≈`;
+  const item = { data: f.data, hora: f.data === hoje() ? agoraHora() : '', refeicao: f.refeicao, alimento: nome, gramas: 0, kcal: Math.round(x.kcal * k), prot: r1(x.prot * k), carb: r1(x.carb * k), gord: r1(x.gord * k), fibra: r1(x.fibra * k) };
+  fecharSheet();
+  adicionar('refeicoes', item);
+  toast(`${x.nome.split(' (')[0]} lançado · ≈ ${fmt(item.kcal)} kcal`);
+}
+
 // ---------- Combos (neste aparelho) ----------
 function lerCombos() { try { const c = JSON.parse(localStorage.getItem('vitta:combos') || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
 function gravarCombos(c) { try { localStorage.setItem('vitta:combos', JSON.stringify(c)); } catch { /* sem armazenamento */ } }
@@ -1479,6 +1519,7 @@ function htmlPratos() {
     <div class="pbusca"><input class="input" id="pBusca" placeholder="Buscar alimento… (ex.: pão, banana)" autocomplete="off"><div id="pRes"></div></div>
     <div class="p-atalhos">
       ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
+      <button class="btn ghost p-rep" data-action="fora-abrir">🍽️ Comi fora (estimado)</button>
       ${lerCombos().map((c, i) => `<span class="combo"><button data-action="p-combo" data-i="${i}">★ ${esc(c.nome)}</button><button class="cx" data-action="p-combo-del" data-i="${i}" aria-label="Excluir combo">×</button></span>`).join('')}
     </div>
     ${form.lista.map((p, i) => {
@@ -1619,7 +1660,8 @@ function sheetEditarRef(id) {
     <div class="sheet-h"><h2>Editar lançamento</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
     <div class="picked" style="margin-bottom:12px"><div><b>${esc(r.alimento)}</b><small class="num">${fmt(r.kcal)} kcal${g ? ' · ' + fmt(g) + ' g' : ''}</small></div></div>
     <div class="field"><label>Refeição</label><div class="chips scroll">${refs.map((k) => { const R = REFEICOES.find((x) => x.k === k); return `<button class="chip ${r.refeicao === k ? 'on' : ''}" data-action="e-ref" data-v="${esc(k)}">${R ? R.ico + ' ' : ''}${esc(k)}</button>`; }).join('')}</div></div>
-    ${g ? `<div class="field"><label>Quantidade (gramas)</label><input class="input num" id="eGramas" type="number" inputmode="decimal" min="0" step="any" value="${g}"><div class="hint">Calorias e macros acompanham a nova quantidade.</div></div>` : ''}
+    ${g ? `<div class="field"><label>Quantidade (gramas)</label><input class="input num" id="eGramas" type="number" inputmode="decimal" min="0" step="any" value="${g}"><div class="hint">Calorias e macros acompanham a nova quantidade.</div></div>`
+      : num(r.kcal) > 0 ? `<div class="field"><label>Calorias (kcal)</label><input class="input num" id="eKcal" type="number" inputmode="decimal" min="0" step="any" value="${num(r.kcal)}"><div class="hint">Se souber o valor real, corrija aqui. Os macros acompanham.</div></div>` : ''}
     <div class="row3">
       <div class="field"><label>Data</label><input class="input" id="eData" type="date" value="${esc(r.data)}" max="${hoje()}"></div>
       <div class="field"><label>Hora</label><input class="input" id="eHora" type="time" value="${esc(r.hora || '')}"></div>
@@ -1631,7 +1673,8 @@ function salvarEdicaoRef() {
   const g0 = num(r.gramas);
   let g = g0 ? num($('#eGramas')?.value) : 0;
   if (g0 && !(g > 0)) { toast('Informe a quantidade'); return; }
-  const k = g0 ? g / g0 : 1;
+  let k = g0 ? g / g0 : 1;
+  if (!g0 && $('#eKcal')) { const nk = num($('#eKcal').value); if (!(nk > 0)) { toast('Informe as calorias'); return; } k = nk / num(r.kcal); }
   let alimento = r.alimento;
   const m = String(alimento).match(/^(.*?)\s*\(([\d.,]+)\s*([^)]*)\)\s*$/);
   const p = m && PRATOS.find((x) => norm(x.nome) === norm(m[1]));
@@ -1869,6 +1912,8 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'p-repetir': repetirRefeicao(); break;
+    case 'fora-abrir': sheetFora(); break;
+    case 'fora-add': addFora(Number(b.dataset.i), Number(b.dataset.j)); break;
     case 'p-combo': aplicarCombo(Number(b.dataset.i)); break;
     case 'p-combo-save': salvarCombo(); break;
     case 'p-combo-del': {
