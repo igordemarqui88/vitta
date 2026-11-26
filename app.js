@@ -507,7 +507,7 @@ function preencherMetasIniciais() {
 }
 
 // chaves da aba Config que não são metas: combos de refeição e medições da balança (JSON em texto)
-const CFG_EXTRA = ['combos', 'corpo', 'esporadicos'];
+const CFG_EXTRA = ['combos', 'corpo', 'esporadicos', 'favoritos'];
 function salvarConfig(cfg) {
   cfg = { ...cfg };
   for (const k of CFG_EXTRA) if (cfg[k] === undefined && S.config[k] !== undefined) cfg[k] = S.config[k];
@@ -2510,7 +2510,28 @@ function calcPrato(i) {
   const k = g / 100;
   return { nome: p.nome, gramas: r1(g), q, modo: st.modo, kcal: Math.round(fd.kcal * k), prot: r1(fd.prot * k), carb: r1(fd.carb * k), gord: r1(fd.gord * k), fibra: r1(fd.fibra * k) };
 }
+// Grupos e favoritos da lista de pratos. Favoritos: os que você marcou com ★ (sincronizados na aba Config);
+// sem marcação, valem os 8 que você mais lança nesta refeição.
+const GRUPOS_PRATO = [['fav', '⭐ Favoritos'], ['prot', '🥩 Proteínas'], ['carb', '🍚 Carboidratos'], ['fruta', '🍌 Frutas'], ['lac', '🥛 Laticínios'], ['beb', '🍺 Bebidas'], ['doce', '🍯 Doces'], ['todos', 'Todos']];
+const GRUPO_DE = { 'Arroz': 'carb', 'Feijão': 'carb', 'Frango desfiado': 'prot', 'Carne moída': 'prot', 'Ovos': 'prot', 'Whey': 'prot', 'Sardinha (lata)': 'prot', 'Atum (lata)': 'prot',
+  'Bisteca de porco': 'prot', 'Bife bovino': 'prot', 'Filé mignon suíno': 'prot', 'Muçarela': 'lac', 'Leite': 'lac', 'Iogurte Pense Zero': 'lac',
+  'Banana': 'fruta', 'Mamão': 'fruta', 'Laranja': 'fruta', 'Melão': 'fruta', 'Melancia': 'fruta', 'Cerveja Ultra': 'beb', 'Doce de leite': 'doce' };
+function favNomes() {
+  try { const c = JSON.parse(S.config.favoritos || ''); if (Array.isArray(c) && c.length) return c; } catch { /* sem marcação */ }
+  return (form?.lista || []).slice(0, 8).map((p) => p.nome);
+}
+function alternarFav(nome) {
+  const f = favNomes(), k = norm(nome), t = f.some((x) => norm(x) === k) ? f.filter((x) => norm(x) !== k) : [...f, nome];
+  salvarConfig({ ...S.config, favoritos: JSON.stringify(t.length ? t : ['—']) });
+}
+function pratoVisivel(p, i, grupo, favs) {
+  if (num(form.pratos[i].q) > 0) return true;
+  if (grupo === 'todos') return true;
+  if (grupo === 'fav') return favs.some((x) => norm(x) === norm(p.nome));
+  return GRUPO_DE[p.nome] === grupo;
+}
 function htmlPratos() {
+  const grupo = ui.prGrupo || 'fav', favs = favNomes();
   const ultima = ultimaRefeicao(form.refeicao, form.data);
   return `<div class="pratos">
     <div class="pratos-h"><span class="lbl-t">Pratos</span>
@@ -2524,11 +2545,14 @@ function htmlPratos() {
       <button class="btn ghost p-rep" data-action="esp-abrir">🌭 Esporádicos</button>
       ${lerCombos().map((c, i) => `<span class="combo"><button data-action="p-combo" data-i="${i}">★ ${esc(c.nome)}</button><button class="cx" data-action="p-combo-del" data-i="${i}" aria-label="Excluir combo">×</button></span>`).join('')}
     </div>
+    <div class="seg seg-scroll grupos">${GRUPOS_PRATO.map(([k, r]) => `<button class="${grupo === k ? 'on' : ''}" data-action="p-grupo" data-v="${k}">${r}</button>`).join('')}</div>
+    ${form.lista.some((p, i) => pratoVisivel(p, i, grupo, favs)) ? '' : '<div class="hint" style="padding:6px 2px 10px">Nada neste grupo ainda. Toque em ☆ nos alimentos de "Todos" para criar seus favoritos.</div>'}
     ${form.lista.map((p, i) => {
       const fd = alimentoPorNome(p.food), st = form.pratos[i];
       const un = st.modo === 'un' ? p.un : (p.medida || 'g');
-      return `<div class="prato">
-        <div class="pn"><b>${esc(p.nome)}</b><small class="num">${!fd ? 'não encontrado' : p.un ? `1 ${p.un} = ${p.g} ${p.medida || 'g'}` : fmt(fd.kcal) + ' kcal/100 g'}</small></div>
+      const eFav = favs.some((x) => norm(x) === norm(p.nome));
+      return `<div class="prato${pratoVisivel(p, i, grupo, favs) ? '' : ' off'}">
+        <div class="pn"><b><button class="star${eFav ? ' on' : ''}" data-action="p-fav" data-i="${i}" aria-label="${eFav ? 'Remover dos favoritos' : 'Favoritar'}">${eFav ? '★' : '☆'}</button>${esc(p.nome)}</b><small class="num">${!fd ? 'não encontrado' : p.un ? `1 ${p.un} = ${p.g} ${p.medida || 'g'}` : fmt(fd.kcal) + ' kcal/100 g'}</small></div>
         <div class="pstep"><button class="stp" data-action="p-step" data-i="${i}" data-d="-1" aria-label="Diminuir">−</button><input class="input num pq" id="pq_${i}" type="number" inputmode="decimal" min="0" step="any" placeholder="0" value="${esc(st.q)}"><button class="stp" data-action="p-step" data-i="${i}" data-d="1" aria-label="Aumentar">+</button></div>
         ${p.un
           ? `<div class="pu-seg">${['un', 'g'].map((m) => `<button class="${st.modo === m ? 'on' : ''}" data-action="p-modo" data-i="${i}" data-m="${m}">${m === 'un' ? p.un : (p.medida || 'g')}</button>`).join('')}</div>`
@@ -2942,6 +2966,12 @@ document.addEventListener('click', (e) => {
       else { form.lista.unshift({ nome: a.nome, food: a.nome }); form.pratos.unshift({ q: '100', modo: 'g' }); }
       renderRefeicao();
       break;
+    }
+    case 'p-grupo': form.data = $('#fData')?.value || form.data; ui.prGrupo = b.dataset.v; renderRefeicao(); break;
+    case 'p-fav': {
+      form.data = $('#fData')?.value || form.data;
+      const p = form.lista[Number(b.dataset.i)]; if (!p) break;
+      alternarFav(p.nome); renderRefeicao(); break;
     }
     case 'p-repetir': repetirRefeicao(); break;
     case 'desc-abrir': sheetDescrever(); break;

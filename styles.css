@@ -563,3 +563,9 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .dc-n.ajustar b{color:var(--warn)}
 .dc-n.parar b{color:var(--bad,#e5484d)}
 .dc-n.dica b{color:var(--brand)}
+
+/* grupos e favoritos da lista de pratos */
+.grupos { margin: 4px 0 8px; }
+.prato.off { display: none; }
+.star { display: inline-block; width: 24px; margin-right: 2px; font-size: 17px; line-height: 1; color: var(--muted); vertical-align: -1px; }
+.star.on { color: #f5c04a; }
