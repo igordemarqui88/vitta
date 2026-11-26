@@ -46,6 +46,12 @@ const PRATOS = [
   { nome: 'Bisteca de porco', food: 'Bisteca de porco frita', un: 'bisteca', g: 120, passo: 50 },
   { nome: 'Bife bovino',     food: 'Bife bovino grelhado', un: 'bife', g: 120, passo: 50 },
   { nome: 'Filé mignon suíno', food: 'Filé mignon suíno grelhado', un: 'filé', g: 120, passo: 50 },
+  { nome: 'Banana',          food: 'Banana prata', un: 'banana', g: 100, padrao: 'un' },
+  { nome: 'Mamão',           food: 'Mamão papaia', un: 'fatia', g: 150, padrao: 'un' },
+  { nome: 'Laranja',         food: 'Laranja pera', un: 'laranja', g: 150, padrao: 'un' },
+  { nome: 'Melão',           food: 'Melão', un: 'fatia', g: 150, padrao: 'un' },
+  { nome: 'Melancia',        food: 'Melancia', un: 'fatia', g: 200, padrao: 'un' },
+  { nome: 'Doce de leite',   food: 'Doce de leite', un: 'colher', g: 20, padrao: 'un' },
   { nome: 'Cerveja Ultra',   food: 'Cerveja baixa caloria (Amstel Ultra, Michelob Ultra)', un: 'long neck', g: 355, medida: 'ml', padrao: 'un' },
   { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g', passo: 30 },
 ];
