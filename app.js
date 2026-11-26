@@ -1460,6 +1460,64 @@ function janelaCorpo(L) {
   }
   return { A, B, LW: L.filter((e) => e.data >= A && e.data <= B) };
 }
+// Gráfico agrupado: indicadores parecidos no mesmo gráfico, cada um como variação % desde o início do período
+const CORPO_GR = [
+  ['gordura', 'Gordura', ['gp', 'gk', 'vis']],
+  ['musculo', 'Músculo', ['mm', 'me', 'lbm']],
+  ['metab', 'Metabolismo', ['tmb', 'im']],
+  ['outros', 'Água e outros', ['ag', 'pr', 'os']],
+];
+const CORES_CORPO = ['#9b7bff', '#e0a23a', '#4cc38a', '#4aa8e8'];
+function multiSvg(series) {
+  const W = 340, H = 190, pl = 40, pr = 10, pt = 12, pb = 24;
+  const todas = series.flatMap((s) => s.pts);
+  const xs = todas.map((p) => parse(p.data).getTime());
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let mn = Math.min(0, ...todas.map((p) => p.pct)), mx = Math.max(0, ...todas.map((p) => p.pct));
+  if (mx - mn < 1) { mn -= 0.5; mx += 0.5; }
+  const pv = (mx - mn) * 0.12; mn -= pv; mx += pv;
+  const X = (t) => x1 === x0 ? (pl + (W - pl - pr) / 2) : pl + (W - pl - pr) * (t - x0) / (x1 - x0);
+  const Y = (v) => pt + (H - pt - pb) * (1 - (v - mn) / (mx - mn));
+  const ticks = [mn + pv, 0, mx - pv].filter((v, i, a) => a.findIndex((u) => Math.abs(u - v) < (mx - mn) * 0.08) === i);
+  const datas = [...new Set(todas.map((p) => p.data))].sort();
+  const xl = datas.length > 1 ? [datas[0], datas[datas.length - 1]] : [datas[0]];
+  return `<svg viewBox="0 0 ${W} ${H}">
+    ${ticks.map((v) => `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" ${Math.abs(v) < 1e-9 ? 'stroke-dasharray="4 4" style="stroke:var(--muted)"' : ''}/><text x="${pl - 6}" y="${Y(v) + 3.5}" text-anchor="end">${v > 0.05 ? '+' : ''}${fmt(v, 1)}%</text>`).join('')}
+    ${series.map((s) => {
+      const P = s.pts.map((p) => [X(parse(p.data).getTime()), Y(p.pct)]);
+      const path = P.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+      return `${P.length > 1 ? `<path d="${path}" fill="none" stroke="${s.cor}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>` : ''}${P.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === P.length - 1 ? 4.5 : 2.8}" fill="var(--surface)" stroke="${s.cor}" stroke-width="2"/>`).join('')}`;
+    }).join('')}
+    ${xl.map((d, i) => `<text x="${X(parse(d).getTime())}" y="${H - 6}" text-anchor="${xl.length > 1 ? (i ? 'end' : 'start') : 'middle'}">${dataCurta(d)}</text>`).join('')}
+  </svg>`;
+}
+function graficoCorpo(LW) {
+  const gr = CORPO_GR.find((g) => g[0] === ui.corpoGrupo) || CORPO_GR[0];
+  const chips = `<div class="seg seg-scroll" style="margin-bottom:12px">${CORPO_GR.map(([k, r]) => `<button class="${!ui.corpoMetrica && gr[0] === k ? 'on' : ''}" data-action="corpo-grupo" data-v="${k}">${r}</button>`).join('')}</div>`;
+  // um indicador isolado, com os valores reais
+  const mk = ui.corpoMetrica && CORPO.find((c) => c.k === ui.corpoMetrica);
+  if (mk) {
+    const pts = LW.filter((e) => e[mk.k] != null).map((e) => ({ data: e.data, v: e[mk.k] }));
+    return `<div class="card chart"><div class="card-h"><h3>Evolução</h3><span class="sub">${esc(rotCorpo(mk))}</span></div>${chips}
+      ${linhaSvg(pts, mk.dec)}<div class="hint" style="margin-top:6px">Valores reais. Toque em um grupo acima para voltar a comparar vários.</div></div>`;
+  }
+  const series = gr[2].map((k, i) => {
+    const c = CORPO.find((x) => x.k === k), xs = LW.filter((e) => e[k] != null);
+    if (!xs.length) return null;
+    const v0 = xs[0][k];
+    return { c, cor: CORES_CORPO[i % CORES_CORPO.length], a: v0, b: xs[xs.length - 1][k], pts: xs.map((e) => ({ data: e.data, v: e[k], pct: v0 ? (e[k] / v0 - 1) * 100 : 0 })) };
+  }).filter(Boolean);
+  if (!series.length) return `<div class="card chart"><div class="card-h"><h3>Evolução</h3></div>${chips}<div class="empty">Sem medições deste grupo no período.</div></div>`;
+  const leg = series.map((s) => {
+    const d = s.b - s.a, pct = s.a ? d / s.a * 100 : 0;
+    const cls = !s.c.bom || Math.abs(d) < 1e-9 ? '' : (d * s.c.bom > 0 ? 's-good' : 's-warn');
+    return `<button class="cp-lg" data-action="corpo-metrica" data-v="${s.c.k}"><i style="background:${s.cor}"></i><span>${esc(rotCorpo(s.c))}</span><b class="num">${fmt(s.a, s.c.dec)} → ${fmt(s.b, s.c.dec)}</b><em class="${cls}">${(pct > 0 ? '+' : pct < 0 ? '−' : '') + fmt(Math.abs(pct), 1)}%</em></button>`;
+  }).join('');
+  return `<div class="card chart"><div class="card-h"><h3>Evolução</h3><span class="sub">variação % no período</span></div>${chips}
+    ${multiSvg(series)}
+    <div class="cp-legs">${leg}</div>
+    <div class="hint" style="margin-top:6px">Cada linha mostra quanto o indicador mudou em relação ao início do período. Toque em um indicador para ver os valores reais.</div></div>`;
+}
 function telaCorpo() {
   const L = corpoOrdenado();
   const bSync = S.conn.url ? '<button class="btn ghost" data-action="sync">🔄 Sincronizar</button>' : '';
@@ -1531,14 +1589,7 @@ function telaCorpo() {
     <div class="hint" style="margin-top:8px">Verde = melhorou, amarelo = piorou, cinza = neutro. Pequenas oscilações de água e do horário da pesagem são normais.</div></div>` : '';
 
   // 4) gráfico da métrica escolhida, dentro do período
-  const mk = CORPO.find((c) => c.k === ui.corpoMetrica) || CORPO[0];
-  const pts = LW.filter((e) => e[mk.k] != null).map((e) => ({ data: e.data, v: e[mk.k] }));
-  const curto = (c) => rotCorpo(c).replace('Músculo esquelético', 'M. esquel.').replace('Massa muscular', 'M. musc.').replace('Gordura corporal', 'Gordura').replace('Metabolismo basal', 'Metabolismo').replace('Idade metabólica', 'Idade met.').replace('Gordura visceral', 'Visceral').replace('Peso da gordura', 'Gordura');
-  const grafico = `<div class="card chart">
-    <div class="card-h"><h3>Evolução</h3><span class="sub">${esc(rotCorpo(mk))}</span></div>
-    <div class="seg seg-scroll" style="margin-bottom:12px">${CORPO.filter((c) => LW.some((e) => e[c.k] != null)).map((c) => `<button class="${c.k === mk.k ? 'on' : ''}" data-action="corpo-metrica" data-v="${c.k}">${esc(curto(c))}</button>`).join('')}</div>
-    ${linhaSvg(pts, mk.dec)}
-  </div>`;
+  const grafico = graficoCorpo(LW);
 
   const desc = [...L].reverse();
   const hist = `<div class="section-title">Histórico das medições</div>
@@ -2529,6 +2580,7 @@ document.addEventListener('click', (e) => {
     case 'corpo-salvar': salvarCorpo(); break;
     case 'corpo-per': ui.corpoPer = b.dataset.v; render(); break;
     case 'corpo-metrica': ui.corpoMetrica = b.dataset.v; render(); break;
+    case 'corpo-grupo': ui.corpoGrupo = b.dataset.v; ui.corpoMetrica = ''; render(); break;
     case 'del-corpo': {
       const d = b.dataset.d;
       confirmar('Excluir esta medição?', 'Excluir', () => { const o = lerCorpo(); delete o[d]; gravarCorpo(o); render(); toast('Medição excluída'); }, `Medição de ${dataCurta(d)}. O peso do dia não é apagado.`);

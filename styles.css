@@ -533,3 +533,9 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .cp-rb .warn{background:var(--warn)}
 .cp-rb .n{background:var(--muted)}
 .cp-rd{font-size:12px;text-align:right}
+
+/* gráfico agrupado */
+.cp-legs{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.cp-lg{display:grid;grid-template-columns:12px 1fr auto auto;align-items:center;gap:8px;text-align:left;border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:transparent;color:inherit;font:inherit;font-size:13px}
+.cp-lg i{width:10px;height:10px;border-radius:50%}
+.cp-lg em{font-style:normal;font-weight:700;min-width:48px;text-align:right}
