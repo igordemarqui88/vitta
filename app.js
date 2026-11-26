@@ -493,7 +493,11 @@ function preencherMetasIniciais() {
   for (const k in METAS_INICIAIS) if (S.config[k] === '' || S.config[k] == null) S.config[k] = METAS_INICIAIS[k];
 }
 
+// chaves da aba Config que não são metas: combos de refeição e medições da balança (JSON em texto)
+const CFG_EXTRA = ['combos', 'corpo'];
 function salvarConfig(cfg) {
+  cfg = { ...cfg };
+  for (const k of CFG_EXTRA) if (cfg[k] === undefined && S.config[k] !== undefined) cfg[k] = S.config[k];
   S.queue = S.queue.filter((o) => o.op !== 'config' || inflight.has(o.opId));
   const op = { opId: uid(), op: 'config', config: cfg };
   applyOp(op); S.queue.push(op); save(); agendarSync();
@@ -545,6 +549,7 @@ async function sync(manual) {
     for (const k of LISTAS) S[k] = (data[k] || []).map(limparItem(k));
     if (data.config && Object.keys(data.config).length) { S.config = { ...DEFAULT_CFG, ...data.config }; preencherMetasIniciais(); }
     S.queue.forEach(applyOp);
+    migrarCombos();
     S.lastSync = Date.now();
     save(); render(); updateSyncPill();
     if (manual) toast('Tudo sincronizado com o Google Sheets ✓');
@@ -628,6 +633,38 @@ function heroDeficit(M, t, d) {
   </div>`;
 }
 
+// Quanto falta de proteína hoje e o que dá para comer para fechar a meta
+const PROT_OPC = [
+  ['Whey protein (pó)', 30, 'Whey 30 g'], ['Ovo inteiro cozido', 100, '2 ovos cozidos'], ['Peito de frango grelhado', 100, 'Frango grelhado 100 g'],
+  ['Peito de frango grelhado', 150, 'Frango grelhado 150 g'], ['Iogurte grego natural', 170, 'Iogurte grego 170 g'], ['Queijo cottage', 100, 'Cottage 100 g'],
+  ['Atum em lata (em água)', 80, 'Atum 80 g'], ['Peito de peru fatiado', 60, 'Peito de peru 60 g'],
+];
+function opcoesProteina(falta) {
+  return PROT_OPC.map(([nome, g, rot]) => {
+    const f = alimentoPorNome(nome); if (!f) return null;
+    return { nome, g, rot, prot: r1(f.prot * g / 100), kcal: Math.round(f.kcal * g / 100) };
+  }).filter(Boolean).sort((a, b) => Math.abs(a.prot - falta) - Math.abs(b.prot - falta)).slice(0, 4);
+}
+let protOpc = [];
+function cardProteina(t, M, ehHoje) {
+  const meta = M.prot && (M.prot.min || M.prot.alvo);
+  if (!ehHoje || !meta || !t.n) return '';
+  const falta = meta - t.prot;
+  if (falta < 8) return '';
+  protOpc = opcoesProteina(falta);
+  return `<div class="card">
+    <div class="card-h"><h3>🥩 Faltam ${fmt(falta)} g de proteína</h3><span class="sub">para a meta de hoje</span></div>
+    <div class="hint" style="margin:-4px 0 10px">Toque para lançar. O que mais se aproxima do que falta vem primeiro.</div>
+    <div class="prot-opc">${protOpc.map((o, i) => `<button class="prot-chip" data-action="prot-add" data-i="${i}"><b>${esc(o.rot)}</b><small>+${fmt(o.prot, 0)} g prot · ${fmt(o.kcal)} kcal</small></button>`).join('')}</div>
+  </div>`;
+}
+function lancarProteina(i) {
+  const o = protOpc[i]; if (!o) return;
+  const f = alimentoPorNome(o.nome), k = o.g / 100, refeicao = refeicaoPorHora();
+  adicionar('refeicoes', { data: hoje(), hora: agoraHora(), refeicao, alimento: o.nome, gramas: o.g, kcal: Math.round(f.kcal * k), prot: r1(f.prot * k), carb: r1(f.carb * k), gord: r1(f.gord * k), fibra: r1(f.fibra * k) });
+  toast(`${o.rot} lançado em ${refeicao} 🥩`);
+}
+
 function telaHoje() {
   const d = ui.dia;
   const t = totaisDia(d), g = gastoDia(d);
@@ -681,6 +718,8 @@ function telaHoje() {
     ${t.n && !t.comMacros ? `<div class="note" style="margin-bottom:12px">Dia importado da planilha: só tem o total de calorias, sem os macros.</div>` : ''}
     <div class="macros">${MACROS.slice(1).map((m) => macroBar(m, t[m.k], M[m.k])).join('')}</div>
   </div>
+
+  ${cardProteina(t, M, ehHoje)}
 
   <div class="card sec sec-food">
     <div class="sec-h">
@@ -1288,6 +1327,8 @@ function cascataPeso(todos) {
 }
 
 function telaPeso() {
+  const sub = `<div class="seg" style="margin-bottom:14px">${[['peso', '⚖️ Peso'], ['corpo', '🧬 Composição corporal']].map(([k, r]) => `<button class="${(ui.pesoSub || 'peso') === k ? 'on' : ''}" data-action="peso-sub" data-v="${k}">${r}</button>`).join('')}</div>`;
+  if (ui.pesoSub === 'corpo') return sub + telaCorpo();
   const todos = pesosOrdenados();
   const cfg = S.config;
   const atual = todos.length ? num(todos[todos.length - 1].peso) : 0;
@@ -1326,6 +1367,7 @@ function telaPeso() {
 
   const desc = [...todos].reverse();
   return `
+  ${sub}
   ${jornadaPeso(todos, { atual, inicial, meta, alt, imc, imcMeta })}
 
 
@@ -1351,6 +1393,168 @@ function telaPeso() {
       </div>`;
     }).join('') : `<div class="empty">Nenhuma pesagem ainda.</div>`}
   </div>`;
+}
+
+// ---------- Composição corporal (balança de bioimpedância) ----------
+// Guardada na aba Config da planilha (chave "corpo", JSON { "aaaa-mm-dd": { gp: 24.1, … } }), então sincroniza sem mudar o Apps Script.
+// bom: +1 = subir é bom, −1 = descer é bom, 0 = neutro. A ordem daqui é também a ordem da importação.
+const CORPO = [
+  { k: 'gp',  rot: 'Gordura corporal',     un: '%',    dec: 1, bom: -1 },
+  { k: 'gk',  rot: 'Peso da gordura',      un: 'kg',   dec: 1, bom: -1 },
+  { k: 'mm',  rot: 'Massa muscular',       un: 'kg',   dec: 1, bom: 1 },
+  { k: 'mmp', rot: 'Massa muscular',       un: '%',    dec: 1, bom: 1 },
+  { k: 'me',  rot: 'Músculo esquelético',  un: 'kg',   dec: 1, bom: 1 },
+  { k: 'mep', rot: 'Músculo esquelético',  un: '%',    dec: 1, bom: 1 },
+  { k: 'lbm', rot: 'Massa magra',          un: 'kg',  dec: 1, bom: 1 },
+  { k: 'ag',  rot: 'Água',                 un: '%',    dec: 1, bom: 0 },
+  { k: 'vis', rot: 'Gordura visceral',     un: '',     dec: 1, bom: -1 },
+  { k: 'tmb', rot: 'Metabolismo basal',    un: 'kcal', dec: 0, bom: 1 },
+  { k: 'im',  rot: 'Idade metabólica',     un: 'anos', dec: 0, bom: -1 },
+  { k: 'pr',  rot: 'Proteína',             un: '%',    dec: 1, bom: 1 },
+  { k: 'os',  rot: 'Ossos',                un: 'kg',   dec: 2, bom: 0 },
+];
+const rotCorpo = (c) => c.rot + (c.un === '%' || c.un === 'kg' ? ` (${c.un})` : '');
+function lerCorpo() { try { const o = JSON.parse(S.config.corpo || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch { return {}; } }
+function gravarCorpo(o) { salvarConfig({ ...S.config, corpo: JSON.stringify(o) }); }
+function corpoOrdenado() { const o = lerCorpo(); return Object.keys(o).sort().map((d) => ({ data: d, ...o[d] })); }
+function pesoDoDia(data) { const p = S.peso.find((x) => x.data === data); return p ? num(p.peso) : 0; }
+
+function linhaSvg(pts, dec) {
+  if (!pts.length) return '<div class="empty">Sem medições desta métrica.</div>';
+  const W = 340, H = 170, pl = 38, pr = 10, pt = 12, pb = 24;
+  const xs = pts.map((p) => parse(p.data).getTime()), vs = pts.map((p) => p.v);
+  let mn = Math.min(...vs), mx = Math.max(...vs);
+  if (mx - mn < 0.0001) { mn -= 1; mx += 1; }
+  const pv = (mx - mn) * 0.15; mn -= pv; mx += pv;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const X = (t) => x1 === x0 ? (pl + (W - pl - pr) / 2) : pl + (W - pl - pr) * (t - x0) / (x1 - x0);
+  const Y = (v) => pt + (H - pt - pb) * (1 - (v - mn) / (mx - mn));
+  const P = pts.map((p, i) => [X(xs[i]), Y(vs[i])]);
+  const path = P.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const ticks = [0, 1, 2].map((i) => mn + (mx - mn) * i / 2);
+  const xl = pts.length > 1 ? [pts[0], pts[pts.length - 1]] : [pts[0]];
+  return `<svg viewBox="0 0 ${W} ${H}">
+    ${ticks.map((v) => `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${pl - 6}" y="${Y(v) + 3.5}" text-anchor="end">${fmt(v, dec)}</text>`).join('')}
+    ${pts.length > 1 ? `<path d="${path}" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+    ${P.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === P.length - 1 ? 5 : 3}" fill="var(--surface)" stroke="var(--brand)" stroke-width="2.2"/>`).join('')}
+    ${xl.map((p, i) => `<text x="${X(parse(p.data).getTime())}" y="${H - 6}" text-anchor="${xl.length > 1 ? (i ? 'end' : 'start') : 'middle'}">${dataCurta(p.data)}</text>`).join('')}
+  </svg>`;
+}
+function deltaCorpo(c, d) {
+  if (d == null) return '';
+  const cls = !c.bom || Math.abs(d) < 1e-9 ? '' : (d * c.bom > 0 ? 's-good' : 's-warn');
+  return `<small class="${cls}">${Math.abs(d) < 1e-9 ? '= igual' : (d > 0 ? '▲ +' : '▼ ') + fmt(d, c.dec)}</small>`;
+}
+function telaCorpo() {
+  const L = corpoOrdenado();
+  if (!L.length) {
+    return `<div class="card"><div class="empty"><b>Nenhuma medição ainda</b>Na segunda-feira, depois de se pesar, registre os números da balança (gordura, músculo, visceral, metabolismo…) para acompanhar a composição do corpo.</div>
+      <button class="btn" data-action="nova-corpo">+ Registrar medição</button></div>`;
+  }
+  const ult = L[L.length - 1], prim = L[0];
+  const ant = (c) => { const xs = L.filter((e) => e[c.k] != null); return xs.length > 1 ? xs[xs.length - 2][c.k] : null; };
+  const tiles = CORPO.filter((c) => ult[c.k] != null || L.some((e) => e[c.k] != null)).map((c) => {
+    const xs = L.filter((e) => e[c.k] != null), u = xs[xs.length - 1], p = xs.length > 1 ? xs[xs.length - 2] : null;
+    return `<div class="cp-t"><small>${esc(rotCorpo(c))}</small><b class="num">${fmt(u[c.k], c.dec)}<span>${c.un && c.un !== '%' && c.un !== 'kg' ? ' ' + c.un : c.un ? ' ' + c.un : ''}</span></b>${p ? deltaCorpo(c, u[c.k] - p[c.k]) : ''}<em>${dataCurta(u.data)}</em></div>`;
+  }).join('');
+
+  // leitura: o quanto da mudança desde a primeira medição foi gordura × massa magra
+  let leitura = '';
+  const comGk = L.filter((e) => e.gk != null);
+  if (comGk.length > 1) {
+    const a = comGk[0], b = comGk[comGk.length - 1];
+    const pa = pesoDoDia(a.data) || pesoEm(a.data), pb = pesoDoDia(b.data) || pesoEm(b.data);
+    const dG = b.gk - a.gk, dP = pb - pa;
+    const magra = (e) => e.lbm != null ? e.lbm : (pesoDoDia(e.data) || pesoEm(e.data)) - e.gk;
+    const dM = magra(b) - magra(a);
+    const lin = [];
+    if (pa && pb) lin.push(`<div><span>⚖️ Peso<small>${dataCurta(a.data)} → ${dataCurta(b.data)}</small></span><strong class="num ${dP <= 0 ? 's-good' : 's-warn'}">${dP > 0 ? '+' : '−'}${fmt(Math.abs(dP), 1)} kg</strong></div>`);
+    lin.push(`<div><span>🧈 Gordura<small>${fmt(a.gk, 1)} → ${fmt(b.gk, 1)} kg</small></span><strong class="num ${dG <= 0 ? 's-good' : 's-warn'}">${dG > 0 ? '+' : '−'}${fmt(Math.abs(dG), 1)} kg</strong></div>`);
+    lin.push(`<div><span>💪 Massa magra<small>${fmt(magra(a), 1)} → ${fmt(magra(b), 1)} kg</small></span><strong class="num ${dM >= 0 ? 's-good' : 's-warn'}">${dM > 0 ? '+' : '−'}${fmt(Math.abs(dM), 1)} kg</strong></div>`);
+    let nota = '';
+    if (pa && pb && dP < -0.5 && dG < 0) {
+      const pc = Math.min(100, Math.round(-dG / -dP * 100));
+      nota = `<div class="hint" style="margin-top:8px">Do que você perdeu de peso, <b>${pc}%</b> foi gordura${pc >= 70 ? ' — ótimo, o músculo está sendo preservado 👏' : pc >= 50 ? '.' : ': parte da perda está vindo de massa magra, vale reforçar proteína e treino.'}</div>`;
+    }
+    leitura = `<div class="card"><div class="card-h"><h3>Leitura da evolução</h3><span class="sub">desde ${dataCurta(a.data)}</span></div><div class="hero-stats resumo-sem">${lin.join('')}</div>${nota}</div>`;
+  }
+
+  const mk = CORPO.find((c) => c.k === ui.corpoMetrica) || CORPO[0];
+  const pts = L.filter((e) => e[mk.k] != null).map((e) => ({ data: e.data, v: e[mk.k] }));
+  const desc = [...L].reverse();
+  return `
+  <div class="card">
+    <div class="card-h"><h3>Última medição</h3><button class="pill-add" data-action="nova-corpo">+ Registrar</button></div>
+    <div class="cp-grid">${tiles}</div>
+  </div>
+  ${leitura}
+  <div class="card chart">
+    <div class="card-h"><h3>Evolução</h3><span class="sub">${esc(rotCorpo(mk))}</span></div>
+    <div class="seg seg-scroll" style="margin-bottom:12px">${CORPO.filter((c) => L.some((e) => e[c.k] != null)).map((c) => `<button class="${c.k === mk.k ? 'on' : ''}" data-action="corpo-metrica" data-v="${c.k}">${esc(rotCorpo(c).replace('Músculo esquelético', 'M. esquel.').replace('Massa muscular', 'M. musc.').replace('Gordura corporal', 'Gordura').replace('Metabolismo basal', 'Metabolismo'))}</button>`).join('')}</div>
+    ${linhaSvg(pts, mk.dec)}
+  </div>
+  <div class="section-title">Histórico das medições</div>
+  <div class="card">
+    ${desc.map((e) => `<div class="item">
+      <div class="ico">🧬</div>
+      <button class="body" style="text-align:left;background:none;border:0;color:inherit;font:inherit;padding:0" data-action="edit-corpo" data-d="${e.data}"><b>${rotuloDia(e.data)}${rotuloDia(e.data).includes(',') ? '' : ', ' + dataCurta(e.data)}</b><small class="num">${[e.gp != null ? `gordura ${fmt(e.gp, 1)}%` : '', e.mm != null ? `músculo ${fmt(e.mm, 1)} kg` : '', e.vis != null ? `visceral ${fmt(e.vis, 1)}` : ''].filter(Boolean).join(' · ') || 'toque para editar'}</small></button>
+      <button class="del" data-action="del-corpo" data-d="${e.data}" aria-label="Excluir">${ICON.x}</button>
+    </div>`).join('')}
+  </div>`;
+}
+function sheetCorpo(data) {
+  const reg = data ? (lerCorpo()[data] || {}) : {};
+  const d = data || hoje();
+  form = { tipo: 'corpo', orig: data || '' };
+  const peso = pesoDoDia(d);
+  const campo = (c) => `<div class="field"><label>${esc(rotCorpo(c))}</label><input class="input num" type="text" inputmode="decimal" id="cp_${c.k}" value="${reg[c.k] != null ? String(reg[c.k]).replace('.', ',') : ''}" placeholder="—"></div>`;
+  abrirSheet(`
+    <div class="sheet-h"><h2>${data ? 'Editar medição' : 'Medição da balança'}</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="row">
+      <div class="field"><label>Data</label><input class="input" type="date" id="cpData" value="${d}" max="${hoje()}"></div>
+      <div class="field"><label>Peso (kg)</label><input class="input num" type="text" inputmode="decimal" id="cp_peso" value="${peso ? String(peso).replace('.', ',') : ''}" placeholder="${pesoAtual() ? fmt(pesoAtual(), 1) : '—'}"></div>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px">Preencha só o que a balança mostrar; o resto fica em branco. Se ainda não houver peso nessa data, ele também entra no histórico de peso.</div>
+    <div class="row cp-form">${CORPO.map(campo).join('')}</div>
+    <button class="btn" data-action="corpo-salvar">Salvar medição</button>`);
+}
+function salvarCorpo() {
+  const data = dataPesagem($('#cpData').value || hoje());
+  const reg = {};
+  for (const c of CORPO) { const raw = $('#cp_' + c.k).value.trim(); if (raw !== '') { const n = num(raw); if (n > 0) reg[c.k] = n; } }
+  const peso = num($('#cp_peso').value);
+  if (!Object.keys(reg).length && !(peso >= 20)) { toast('Preencha ao menos um valor'); return; }
+  const todos = lerCorpo();
+  if (form && form.orig && form.orig !== data) delete todos[form.orig];
+  if (Object.keys(reg).length) todos[data] = reg; else delete todos[data];
+  gravarCorpo(todos);
+  if (peso >= 20 && peso <= 400 && !S.peso.some((p) => p.data === data)) adicionar('peso', { data, peso: r1(peso), obs: '' });
+  fecharSheet(); render(); toast('Medição salva 🧬');
+}
+// Importa linhas "dd/mm/aaaa; peso; gordura%; gordura kg; …" (mesma ordem de CORPO; vazio = sem valor)
+function importarCorpo(texto) {
+  const todos = lerCorpo(), existentes = new Set(S.peso.map((p) => p.data));
+  let novos = 0, atualizados = 0, ignoradas = 0, pesos = 0;
+  for (const linha of String(texto).split(/\r?\n/)) {
+    if (!linha.trim()) continue;
+    const t = linha.split(/[;\t]/).map((x) => x.trim());
+    const m = t[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) { ignoradas++; continue; }
+    const data = dataPesagem(`${m[3]}-${pad(m[2])}-${pad(m[1])}`);
+    const reg = {};
+    CORPO.forEach((c, i) => { const n = num((t[i + 2] || '').replace(',', '.')); if (n > 0) reg[c.k] = n; });
+    const peso = num((t[1] || '').replace(',', '.'));
+    if (peso >= 20 && peso <= 400 && !existentes.has(data)) {
+      existentes.add(data);
+      const item = { id: 'peso-' + data, data, peso: r1(peso), obs: '', criadoEm: new Date().toISOString() };
+      const op = { opId: uid(), op: 'add', tipo: 'peso', item }; applyOp(op); S.queue.push(op); pesos++;
+    }
+    if (!Object.keys(reg).length) { if (!(peso >= 20)) ignoradas++; continue; }
+    if (todos[data]) atualizados++; else novos++;
+    todos[data] = reg;
+  }
+  if (novos || atualizados) gravarCorpo(todos); else if (pesos) { save(); agendarSync(); }
+  return { novos, atualizados, ignoradas, pesos };
 }
 
 // Texto de prévia das metas automáticas (usa a configuração passada, que pode ainda não estar salva)
@@ -1440,6 +1644,20 @@ function telaAjustes() {
   </div>
 
   <div class="card">
+    <div class="card-h"><h3>Importar composição corporal</h3></div>
+    <div class="hint" style="margin:0 0 10px">Uma linha por pesagem, separada por ponto e vírgula (ou tab): <b>data; peso; gordura %; gordura kg; massa muscular kg; massa muscular %; músculo esquelético kg; músculo esquelético %; massa magra kg; água %; gordura visceral; metabolismo; idade metabólica; proteína %; ossos kg</b>. Deixe vazio o que não tiver. Datas já cadastradas são atualizadas.</div>
+    <textarea class="input num" id="impCorpo" rows="5" placeholder="01/01/2026; 90,0; 25,0; 22,5; 61,0; 70,5; 33,0; 38,0; 65,0; 52,0; 13; 1800; 42; 18,5; 3,6" style="resize:vertical;font-size:14px"></textarea>
+    <button class="btn ghost" style="margin-top:10px" data-action="importar-corpo">Importar medições</button>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h3>Relatório do mês</h3></div>
+    <div class="hint" style="margin:0 0 10px">Resumo do mês com calorias, macros, treinos, peso e composição corporal. O PDF abre a impressão do aparelho: escolha "Salvar como PDF".</div>
+    <div class="field"><label>Mês</label><select class="input" id="relMes">${mesesComDados().map((m) => `<option value="${m}">${esc(rotuloMes(m))}</option>`).join('')}</select></div>
+    <div class="btn-row"><button class="btn" data-action="rel-pdf">📄 Salvar em PDF</button><button class="btn ghost" data-action="rel-csv">📊 Baixar CSV</button></div>
+  </div>
+
+  <div class="card">
     <div class="card-h"><h3>Dados</h3></div>
     <div class="kv"><span>Refeições registradas</span><b class="num">${S.refeicoes.length}</b></div>
     <div class="kv"><span>Atividades</span><b class="num">${S.atividades.length}</b></div>
@@ -1447,6 +1665,80 @@ function telaAjustes() {
     <button class="btn ghost" style="margin-top:12px" data-action="backup">Baixar backup (JSON)</button>
   </div>
   <p class="hint" style="text-align:center">Vitta · seus dados ficam no seu Google Sheets</p>`;
+}
+
+// ---------- Relatório mensal (PDF pelo "imprimir" do aparelho e CSV) ----------
+function mesesComDados() {
+  const s = new Set([hoje().slice(0, 7)]);
+  for (const l of [S.refeicoes, S.atividades, S.peso]) for (const x of l) if (x.data) s.add(String(x.data).slice(0, 7));
+  return [...s].sort().reverse();
+}
+function rotuloMes(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][m - 1]} de ${y}`;
+}
+function dadosMes(ym) {
+  const [y, m] = ym.split('-').map(Number), n = new Date(y, m, 0).getDate(), t0 = hoje();
+  const dias = [];
+  for (let d = 1; d <= n; d++) {
+    const data = `${ym}-${pad(d)}`; if (data > t0) break;
+    const t = totaisDia(data), g = gastoDia(data), M = metasDia(data);
+    const ativs = S.atividades.filter((a) => a.data === data).map((a) => a.tipo === 'Planilha' ? String(a.obs || 'Atividades').replace(/ · gasto total.*$/, '') : descAtividade(a));
+    dias.push({ data, t, g, meta: Math.round(M.kcal.alvo || 0), ativs, peso: pesoDoDia(data) });
+  }
+  return dias;
+}
+function relatorioCSV(ym) {
+  const n = (v, d = 0) => String(Math.round(v * 10 ** d) / 10 ** d).replace('.', ',');
+  const linhas = [['Data', 'Calorias comidas', 'Meta de calorias', 'Proteína (g)', 'Carboidrato (g)', 'Gordura (g)', 'Fibras (g)', 'Calorias gastas em atividades', 'Atividades', 'Peso (kg)']];
+  for (const d of dadosMes(ym)) {
+    const [y, m, dd] = d.data.split('-');
+    const mac = d.t.n && d.t.comMacros; // dias importados da planilha só têm calorias
+    linhas.push([`${dd}/${m}/${y}`, d.t.n ? n(d.t.kcal) : '', d.meta ? n(d.meta) : '', mac ? n(d.t.prot, 1) : '', mac ? n(d.t.carb, 1) : '', mac ? n(d.t.gord, 1) : '', mac ? n(d.t.fibra, 1) : '', d.g.kcal ? n(d.g.kcal) : '', d.ativs.join(' + '), d.peso ? n(d.peso, 1) : '']);
+  }
+  return '﻿' + linhas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+}
+function relatorioHTML(ym) {
+  const dias = dadosMes(ym), com = dias.filter((d) => d.t.n);
+  const comMac = com.filter((d) => d.t.comMacros);
+  const media = (k) => { const L = k === 'kcal' ? com : comMac; return L.length ? L.reduce((s, d) => s + d.t[k], 0) / L.length : 0; };
+  const treinos = dias.reduce((s, d) => s + S.atividades.filter((a) => a.data === d.data && a.tipo === 'Musculação').length, 0);
+  const kcalAtv = dias.reduce((s, d) => s + d.g.kcal, 0);
+  const pesos = dias.filter((d) => d.peso);
+  const ini = pesos.length ? pesos[0].peso : 0, fim = pesos.length ? pesos[pesos.length - 1].peso : 0;
+  const corpo = corpoOrdenado().filter((e) => e.data.startsWith(ym));
+  const f1 = (v) => fmt(v, 1);
+  const linhaCorpo = corpo.length ? `<h2>Composição corporal</h2><table><tr><th>Medida</th><th>Primeira do mês</th><th>Última do mês</th></tr>${CORPO.filter((c) => corpo.some((e) => e[c.k] != null)).map((c) => {
+    const xs = corpo.filter((e) => e[c.k] != null); return `<tr><td>${esc(rotCorpo(c))}</td><td>${fmt(xs[0][c.k], c.dec)}</td><td>${fmt(xs[xs.length - 1][c.k], c.dec)}</td></tr>`;
+  }).join('')}</table>` : '';
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Vitta — ${esc(rotuloMes(ym))}</title><style>
+    body{font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:24px}
+    h1{font-size:22px;margin:0 0 2px}h2{font-size:15px;margin:22px 0 8px}.sub{color:#555;margin-bottom:14px}
+    .res{display:flex;flex-wrap:wrap;gap:10px}.res div{border:1px solid #ccc;border-radius:8px;padding:8px 12px;min-width:120px}.res b{display:block;font-size:18px}
+    table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:4px 6px;text-align:right;font-size:12px}th{background:#f0f0f0}td:first-child,th:first-child,td.l{text-align:left}
+    @page{margin:14mm}</style></head><body>
+    <h1>Relatório de ${esc(rotuloMes(ym))}</h1><div class="sub">Vitta · gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
+    <div class="res">
+      <div>Dias com refeições<b>${com.length}</b></div><div>Calorias (média/dia)<b>${fmt(media('kcal'))}</b></div>
+      <div>Proteína (média/dia)<b>${fmt(media('prot'))} g</b></div><div>Carboidrato / Gordura<b>${fmt(media('carb'))} / ${fmt(media('gord'))} g</b></div>
+      <div>Treinos de musculação<b>${treinos}</b></div><div>Gasto em atividades<b>${fmt(kcalAtv)} kcal</b></div>
+      <div>Peso<b>${ini ? `${f1(ini)} → ${f1(fim)} kg` : '—'}</b></div>
+    </div>
+    <h2>Dia a dia</h2>
+    <table><tr><th>Data</th><th>Kcal</th><th>Meta</th><th>Prot (g)</th><th>Carb (g)</th><th>Gord (g)</th><th>Fibras (g)</th><th>Gasto ativ.</th><th>Peso</th><th class="l">Atividades</th></tr>
+    ${dias.map((d) => `<tr><td>${d.data.slice(8)}/${d.data.slice(5, 7)}</td><td>${d.t.n ? fmt(d.t.kcal) : '—'}</td><td>${d.meta ? fmt(d.meta) : '—'}</td><td>${d.t.comMacros ? fmt(d.t.prot) : '—'}</td><td>${d.t.comMacros ? fmt(d.t.carb) : '—'}</td><td>${d.t.comMacros ? fmt(d.t.gord) : '—'}</td><td>${d.t.comMacros ? fmt(d.t.fibra) : '—'}</td><td>${d.g.kcal ? fmt(d.g.kcal) : '—'}</td><td>${d.peso ? f1(d.peso) : ''}</td><td class="l">${esc(d.ativs.join(' + '))}</td></tr>`).join('')}
+    </table>${linhaCorpo}</body></html>`;
+}
+function baixarArquivo(nome, conteudo, tipo) {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: tipo })), a = document.createElement('a');
+  a.href = url; a.download = nome; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function imprimirHtml(html) {
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr);
+  const doc = fr.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  setTimeout(() => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Não consegui abrir a impressão neste aparelho'); } setTimeout(() => fr.remove(), 60000); }, 400);
 }
 
 // ---------- Sheets (formulários) ----------
@@ -1517,6 +1809,7 @@ function sheetMenu() {
       <button class="add-opt" data-action="nova-refeicao"><span class="ico" style="background:color-mix(in srgb,var(--kcal) 16%,transparent)">🍽️</span><span><b>Refeição</b><small>O que você comeu e quanto</small></span></button>
       <button class="add-opt" data-action="nova-atividade"><span class="ico" style="background:color-mix(in srgb,var(--prot) 16%,transparent)">🏃</span><span><b>Atividade física</b><small>Treino, caminhada, esporte…</small></span></button>
       <button class="add-opt" data-action="novo-peso"><span class="ico" style="background:color-mix(in srgb,var(--brand) 16%,transparent)">⚖️</span><span><b>Peso</b><small>Registrar pesagem</small></span></button>
+      <button class="add-opt" data-action="nova-corpo"><span class="ico" style="background:color-mix(in srgb,var(--brand) 16%,transparent)">🧬</span><span><b>Composição corporal</b><small>Números da balança (gordura, músculo…)</small></span></button>
     </div>`);
 }
 
@@ -1745,9 +2038,19 @@ function lancarDescricao() {
   toast(`${itens.length} ${itens.length === 1 ? 'item lançado' : 'itens lançados'} · ${fmt(kcal)} kcal`);
 }
 
-// ---------- Combos (neste aparelho) ----------
-function lerCombos() { try { const c = JSON.parse(localStorage.getItem('vitta:combos') || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
-function gravarCombos(c) { try { localStorage.setItem('vitta:combos', JSON.stringify(c)); } catch { /* sem armazenamento */ } }
+// ---------- Combos (sincronizados pela aba Config da planilha) ----------
+function lerCombos() { try { const c = JSON.parse(S.config.combos || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
+function gravarCombos(c) { salvarConfig({ ...S.config, combos: JSON.stringify(c) }); }
+// combos antigos, guardados só neste aparelho: entram na lista sincronizada (sem sobrescrever os que já estão lá)
+function migrarCombos() {
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem('vitta:combos') || '[]'); } catch { local = []; }
+  if (!Array.isArray(local) || !local.length) return;
+  const atuais = lerCombos(), nomes = new Set(atuais.map((x) => norm(x.nome)));
+  const novos = local.filter((x) => x && x.nome && !nomes.has(norm(x.nome)));
+  if (novos.length) gravarCombos([...atuais, ...novos]);
+  try { localStorage.removeItem('vitta:combos'); } catch { /* sem armazenamento */ }
+}
 function salvarCombo() {
   const f = form;
   const itens = f.lista.map((p, i) => ({ nome: p.nome, q: f.pratos[i].q, modo: f.pratos[i].modo })).filter((x) => num(x.q) > 0);
@@ -2138,6 +2441,7 @@ document.addEventListener('click', (e) => {
       atualizarPratos(); render();
       break;
     case 'nova-refeicao': sheetRefeicao(); break;
+    case 'prot-add': lancarProteina(Number(b.dataset.i)); break;
     case 'nova-atividade': sheetAtividade(); break;
     case 'novo-peso': sheetPeso(); break;
     case 'del': {
@@ -2157,6 +2461,25 @@ document.addEventListener('click', (e) => {
       if (!r.novos && !r.repetidos) { toast('Nenhuma linha com data e peso encontrada'); break; }
       render();
       toast(`${r.novos} pesage${r.novos === 1 ? 'm importada' : 'ns importadas'}${r.repetidos ? ` · ${r.repetidos} já existia${r.repetidos === 1 ? '' : 'm'}` : ''}${r.semPeso ? ` · ${r.semPeso} sem peso` : ''}`);
+      break;
+    }
+    case 'importar-corpo': {
+      const r = importarCorpo($('#impCorpo').value);
+      if (!r.novos && !r.atualizados && !r.pesos) { toast('Nenhuma linha válida encontrada'); break; }
+      render();
+      toast(`${r.novos} nova${r.novos === 1 ? '' : 's'} · ${r.atualizados} atualizada${r.atualizados === 1 ? '' : 's'}${r.pesos ? ` · ${r.pesos} peso${r.pesos === 1 ? '' : 's'}` : ''}${r.ignoradas ? ` · ${r.ignoradas} ignorada${r.ignoradas === 1 ? '' : 's'}` : ''}`);
+      break;
+    }
+    case 'rel-pdf': imprimirHtml(relatorioHTML($('#relMes').value)); break;
+    case 'rel-csv': { const ym = $('#relMes').value; baixarArquivo(`vitta-${ym}.csv`, relatorioCSV(ym), 'text/csv;charset=utf-8'); toast('CSV baixado'); break; }
+    case 'peso-sub': ui.pesoSub = b.dataset.v; render(); break;
+    case 'nova-corpo': sheetCorpo(); break;
+    case 'edit-corpo': sheetCorpo(b.dataset.d); break;
+    case 'corpo-salvar': salvarCorpo(); break;
+    case 'corpo-metrica': ui.corpoMetrica = b.dataset.v; render(); break;
+    case 'del-corpo': {
+      const d = b.dataset.d;
+      confirmar('Excluir esta medição?', 'Excluir', () => { const o = lerCorpo(); delete o[d]; gravarCorpo(o); render(); toast('Medição excluída'); }, `Medição de ${dataCurta(d)}. O peso do dia não é apagado.`);
       break;
     }
     case 'backup': {
@@ -2317,6 +2640,7 @@ document.addEventListener('visibilitychange', () => {
 // ---------- Início ----------
 cargaInicial();
 cargaRegistros();
+if (!S.conn.url) migrarCombos(); // com planilha conectada, a migração roda depois do primeiro sync
 render();
 sync(false);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
