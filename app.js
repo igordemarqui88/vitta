@@ -494,7 +494,7 @@ function preencherMetasIniciais() {
 }
 
 // chaves da aba Config que não são metas: combos de refeição e medições da balança (JSON em texto)
-const CFG_EXTRA = ['combos', 'corpo'];
+const CFG_EXTRA = ['combos', 'corpo', 'esporadicos'];
 function salvarConfig(cfg) {
   cfg = { ...cfg };
   for (const k of CFG_EXTRA) if (cfg[k] === undefined && S.config[k] !== undefined) cfg[k] = S.config[k];
@@ -1991,7 +1991,7 @@ function telaAjustes() {
   <div class="card">
     <div class="card-h"><h3>Importar histórico de peso</h3></div>
     <div class="hint" style="margin:0 0 10px">Cole uma linha por pesagem, com a data e o peso (ex.: <b>01/01/2026 90,0</b>). Linhas sem peso e datas já registradas são ignoradas.</div>
-    <textarea class="input num" id="impPesos" rows="5" placeholder="01/01/2026 - qui	90,0&#10;08/01/2026 - qui	89,5" style="resize:vertical;font-size:14px"></textarea>
+    <textarea class="input num" id="impPesos" rows="5" placeholder="01/01/2026 - seg	90,0&#10;08/01/2026 - seg	89,4" style="resize:vertical;font-size:14px"></textarea>
     <button class="btn ghost" style="margin-top:10px" data-action="importar-pesos">Importar pesos</button>
   </div>
 
@@ -2275,6 +2275,66 @@ function addFora(i, j) {
   toast(`${x.nome.split(' (')[0]} lançado · ≈ ${fmt(item.kcal)} kcal`);
 }
 
+// ---------- Esporádicos: pratos de vez em quando, com valores estimados (sincronizados pela aba Config) ----------
+// Os valores abaixo são estimativas somando os componentes de uma porção média; dá para corrigir em ✎.
+const ESP_PADRAO = [
+  { nome: 'Dogão de frango com catupiry (Maringá)', kcal: 720, prot: 35, carb: 66, gord: 34, fibra: 3, obs: 'pão, 1 salsicha, frango com catupiry, alface e batata palha' },
+  { nome: 'Prato de tutu mineiro (shopping)', kcal: 1200, prot: 80, carb: 60, gord: 70, fibra: 10, obs: 'tutu de feijão, arroz, salada, contra-filé grande, 5 fatias de calabresa e torresmo' },
+];
+function lerEsp() {
+  if (S.config.esporadicos == null || S.config.esporadicos === '') return ESP_PADRAO.map((x) => ({ ...x }));
+  try { const c = JSON.parse(S.config.esporadicos); return Array.isArray(c) ? c : []; } catch { return []; }
+}
+function gravarEsp(c) { salvarConfig({ ...S.config, esporadicos: JSON.stringify(c) }); }
+function sheetEsp() {
+  const f = form;
+  f.data = $('#fData')?.value || f.data;
+  form = { tipo: 'esp', refeicao: f.refeicao, data: f.data };
+  renderEsp();
+}
+function renderEsp() {
+  const f = form, dd = `${f.data.slice(8)}/${f.data.slice(5, 7)}`, L = lerEsp();
+  abrirSheet(`
+    <div class="sheet-h"><h2>Esporádicos</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="hint" style="margin:-4px 0 10px">Pratos de vez em quando, com valores estimados. Lançados em <b>${esc(f.refeicao)}</b> (${dd}) e marcados com ≈. Toque em ✎ para ajustar os valores.</div>
+    ${L.map((x, i) => `<div class="prato fora">
+      <div class="pn"><b>${esc(x.nome)}</b><small class="num">≈ ${fmt(x.kcal)} kcal · P ${fmt(x.prot, 0)} · C ${fmt(x.carb, 0)} · G ${fmt(x.gord, 0)}</small>${x.obs ? `<small>${esc(x.obs)}</small>` : ''}</div>
+      <div class="pu-seg fora-seg">${['½', '1', '1½'].map((t, j) => `<button data-action="esp-add" data-i="${i}" data-j="${j}">${t}</button>`).join('')}
+        <button data-action="esp-edit" data-i="${i}" aria-label="Editar">✎</button></div>
+    </div>`).join('') || '<div class="empty"><b>Nenhum esporádico</b>Adicione o primeiro abaixo.</div>'}
+    <button class="btn ghost" data-action="esp-edit" data-i="-1" style="margin-top:12px">+ Novo esporádico</button>`);
+}
+function addEsp(i, j) {
+  const f = form, x = lerEsp()[i]; if (!x) return;
+  const k = [0.5, 1, 1.5][j], tam = ['½ porção', '', '1½ porção'][j];
+  const item = { data: f.data, hora: f.data === hoje() ? agoraHora() : '', refeicao: f.refeicao, alimento: `${x.nome}${tam ? ' (' + tam + ')' : ''} ≈`, gramas: 0, kcal: Math.round(num(x.kcal) * k), prot: r1(num(x.prot) * k), carb: r1(num(x.carb) * k), gord: r1(num(x.gord) * k), fibra: r1(num(x.fibra) * k) };
+  fecharSheet();
+  adicionar('refeicoes', item);
+  toast(`${x.nome.split(' (')[0]} lançado · ≈ ${fmt(item.kcal)} kcal`);
+}
+function sheetEspEditar(i) {
+  const f = form, L = lerEsp(), x = L[i] || { nome: '', kcal: '', prot: '', carb: '', gord: '', fibra: '', obs: '' };
+  form = { tipo: 'esp-edit', refeicao: f.refeicao, data: f.data, idx: i };
+  const campo = (id, rot, v) => `<div class="field"><label>${rot}</label><input class="input num" id="${id}" type="number" inputmode="decimal" step="any" min="0" value="${v === '' ? '' : num(v)}"></div>`;
+  abrirSheet(`
+    <div class="sheet-h"><h2>${i >= 0 ? 'Editar esporádico' : 'Novo esporádico'}</h2><button class="iconbtn" data-action="fechar">${ICON.x}</button></div>
+    <div class="field"><label>Nome</label><input class="input" id="eeNome" value="${esc(x.nome)}" placeholder="Ex.: Feijoada completa"></div>
+    <div class="field"><label>O que vem (opcional)</label><input class="input" id="eeObs" value="${esc(x.obs || '')}" placeholder="Ex.: arroz, couve, farofa, linguiça"></div>
+    <span class="lbl-t">Valores de uma porção (estimativa)</span>
+    <div class="row3">${campo('ee_kcal', 'Kcal', x.kcal)}${campo('ee_prot', 'Prot (g)', x.prot)}${campo('ee_carb', 'Carb (g)', x.carb)}${campo('ee_gord', 'Gord (g)', x.gord)}${campo('ee_fibra', 'Fibra (g)', x.fibra)}</div>
+    <div class="btn-row">${i >= 0 ? '<button class="btn ghost" data-action="esp-del" style="flex:.6">Excluir</button>' : ''}<button class="btn ghost" data-action="esp-voltar" style="flex:.6">Voltar</button><button class="btn" data-action="esp-salvar">Salvar</button></div>`);
+}
+function salvarEsp() {
+  const f = form, nome = ($('#eeNome')?.value || '').trim(), kcal = num($('#ee_kcal')?.value);
+  if (!nome || !(kcal > 0)) { toast('Informe o nome e as calorias'); return; }
+  const x = { nome, kcal, prot: num($('#ee_prot')?.value), carb: num($('#ee_carb')?.value), gord: num($('#ee_gord')?.value), fibra: num($('#ee_fibra')?.value), obs: ($('#eeObs')?.value || '').trim() };
+  const L = lerEsp();
+  if (f.idx >= 0 && L[f.idx]) L[f.idx] = x; else L.push(x);
+  gravarEsp(L);
+  form = { tipo: 'esp', refeicao: f.refeicao, data: f.data };
+  renderEsp(); toast('Esporádico salvo');
+}
+
 // ---------- Descrever o que comi (interpretação no próprio app, sem IA e sem enviar nada para fora) ----------
 const NUM_PAL = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, meio: 0.5, meia: 0.5, metade: 0.5 };
 const UN_PAL = { g: 'g', gr: 'g', grama: 'g', gramas: 'g', kg: 'kg', ml: 'ml', l: 'l', litro: 'l', litros: 'l', un: 'un', unidade: 'un', unidades: 'un',
@@ -2448,6 +2508,7 @@ function htmlPratos() {
       ${ultima ? `<button class="btn ghost p-rep" data-action="p-repetir">↻ Repetir ${esc(form.refeicao.toLowerCase())} de ${ultima.data.slice(8)}/${ultima.data.slice(5, 7)}</button>` : ''}
       <button class="btn ghost p-rep" data-action="desc-abrir">✍️ Descrever o que comi</button>
       <button class="btn ghost p-rep" data-action="fora-abrir">🍽️ Comi fora (estimado)</button>
+      <button class="btn ghost p-rep" data-action="esp-abrir">🌭 Esporádicos</button>
       ${lerCombos().map((c, i) => `<span class="combo"><button data-action="p-combo" data-i="${i}">★ ${esc(c.nome)}</button><button class="cx" data-action="p-combo-del" data-i="${i}" aria-label="Excluir combo">×</button></span>`).join('')}
     </div>
     ${form.lista.map((p, i) => {
@@ -2882,6 +2943,17 @@ document.addEventListener('click', (e) => {
     case 'd-add': lancarDescricao(); break;
     case 'fora-abrir': sheetFora(); break;
     case 'fora-add': addFora(Number(b.dataset.i), Number(b.dataset.j)); break;
+    case 'esp-abrir': sheetEsp(); break;
+    case 'esp-add': addEsp(Number(b.dataset.i), Number(b.dataset.j)); break;
+    case 'esp-edit': sheetEspEditar(Number(b.dataset.i)); break;
+    case 'esp-voltar': form = { tipo: 'esp', refeicao: form.refeicao, data: form.data }; renderEsp(); break;
+    case 'esp-salvar': salvarEsp(); break;
+    case 'esp-del': {
+      const f = form, L = lerEsp(); if (!L[f.idx]) break;
+      L.splice(f.idx, 1); gravarEsp(L);
+      form = { tipo: 'esp', refeicao: f.refeicao, data: f.data }; renderEsp(); toast('Esporádico excluído');
+      break;
+    }
     case 'p-combo': aplicarCombo(Number(b.dataset.i)); break;
     case 'p-combo-save': salvarCombo(); break;
     case 'p-combo-del': {
