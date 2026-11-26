@@ -1015,6 +1015,200 @@ function resumoAtividades(dias, t0) {
     <div class="atv-dias">${linhas}</div>
   </div>`;
 }
+// ---------- Dicas: análise automática dos seus registros (regras, sem IA e sem enviar nada para fora) ----------
+const VEG = ['alface', 'tomate', 'brocolis', 'couve', 'cenoura', 'abobrinha', 'pepino', 'espinafre', 'beterraba', 'vagem', 'chuchu', 'repolho', 'rucula', 'salada', 'legume', 'verdura', 'pimentao', 'berinjela', 'abobora', 'cogumelo', 'aspargo', 'agriao'];
+const FRUTA = ['banana', 'maca', 'mamao', 'laranja', 'morango', 'uva', 'manga', 'melancia', 'abacaxi', 'kiwi', 'pera', 'abacate', 'acai', 'fruta', 'melao', 'limao', 'tangerina', 'goiaba', 'ameixa'];
+function atvDoDia(d) { return S.atividades.filter((a) => a.data === d); }
+function diaAtivo(d) { return atvDoDia(d).some((a) => num(a.kcal) > 5 && !/^Descanso/i.test(a.obs || '')); }
+function diaForca(d) {
+  return atvDoDia(d).some((a) => a.tipo === 'Musculação' || (a.tipo === 'Planilha' && !/^Descanso/i.test(a.obs || '') && /(treino|muscula|for[cç]a|full body|atividade [0-9])/i.test(a.obs || '')));
+}
+function dicasApp() {
+  const t0 = hoje(), fim = addDias(t0, -1);
+  const mk = (n) => Array.from({ length: n }, (_, i) => addDias(fim, -(n - 1) + i));
+  const d14 = mk(14), d28 = mk(28);
+  const T = (d) => totaisDia(d);
+  const com = (ds) => ds.filter((d) => T(d).n > 0);
+  const media = (xs) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0;
+  const out = [];
+  const add = (k, prio, ic, t, x, d) => out.push({ k, prio, ic, t, x, d: d || '' });
+  const peso = pesoAtual(), B = calcBase(peso), tmb = B ? B.tmb : 0;
+  const piso = tmb ? Math.round(tmb * 0.72 / 50) * 50 : 1300;
+
+  // ----- Peso -----
+  const ps = pesosOrdenados();
+  if (ps.length >= 2) {
+    const ult = ps[ps.length - 1], lim = addDias(ult.data, -28);
+    const ref = ps.find((p) => p.data >= lim && p !== ult) || ps[ps.length - 2];
+    const sem = Math.max(1, (parse(ult.data) - parse(ref.data)) / (7 * 864e5));
+    const ritmo = (num(ref.peso) - num(ult.peso)) / sem, pct = ritmo / num(ult.peso) * 100;
+    const dado = `${dataCurta(ref.data)} → ${dataCurta(ult.data)}: ${fmt(ref.peso, 1)} → ${fmt(ult.peso, 1)} kg`;
+    if (ritmo > 0.05) {
+      if (pct > 1) add('ajustar', 2, '🐇', 'Ritmo de perda muito rápido', `Você está perdendo cerca de ${fmt(ritmo, 1)} kg por semana (${fmt(pct, 1)}% do peso). Acima de ~1% por semana aumenta o risco de perder massa magra. Considere um déficit um pouco menor.`, dado);
+      else if (ritmo >= 0.3) add('bom', 3, '📉', 'Ritmo de perda saudável', `Cerca de ${fmt(ritmo, 1)} kg por semana (${fmt(pct, 1)}% do peso): bom equilíbrio entre resultado e preservação de músculo.`, dado);
+    } else if (ritmo <= 0.05) {
+      add('dica', 4, '⏸️', 'Peso estável nas últimas semanas', 'Oscilações de ±1 kg são normais (água, sal, horário). Olhe a tendência de 3 a 4 semanas antes de mudar o plano.', dado);
+    }
+    // semanas seguidas sem subir
+    let seq = 0; for (let i = ps.length - 1; i > 0 && num(ps[i].peso) <= num(ps[i - 1].peso); i--) seq++;
+    if (seq >= 4) add('bom', 1, '🏅', `${seq} pesagens seguidas sem subir`, 'Constância é o que mais pesa no resultado. Continue pesando sempre no mesmo dia e horário.', `${dataCurta(ps[ps.length - 1 - seq].data)} → ${dataCurta(ult.data)}`);
+    // meta
+    const meta = num(S.config.pesoMeta);
+    if (meta && num(ult.peso) > meta && ritmo > 0.1) {
+      const falta = num(ult.peso) - meta, semanas = Math.ceil(falta / ritmo);
+      add('dica', 3, '🎯', `Faltam ${fmt(falta, 1)} kg para a meta`, `No ritmo atual, por volta de ${dataCurta(addDias(ult.data, semanas * 7))}. Perto da meta, vale desacelerar um pouco e planejar a fase de manutenção.`, `meta ${fmt(meta, 1)} kg`);
+    }
+    // pesagem em dia
+    const dsp = Math.round((parse(t0) - parse(ult.data)) / 864e5);
+    if (dsp > 9) add('ajustar', 2, '⚖️', 'Pesagem atrasada', `Sua última pesagem foi há ${dsp} dias. Pesar toda semana, no mesmo dia, mantém a análise confiável.`, `última: ${dataCurta(ult.data)}`);
+  }
+
+  // ----- Alimentação: calorias -----
+  const dd = com(d14);
+  if (dd.length >= 7) {
+    const avg = media(dd.map((d) => T(d).kcal));
+    if (tmb && avg < tmb * 0.95) add('ajustar', 1, '🍽️', 'Você está comendo abaixo do metabolismo basal', `Média de ${fmt(avg)} kcal/dia, contra um basal de ${fmt(tmb)} kcal. Comer pouco demais com muito treino acelera a perda de massa magra. Suba um pouco nos dias de treino.`, `últimos ${dd.length} dias com registro`);
+    else if (tmb) add('bom', 3, '🍽️', 'Ingestão calórica coerente com o objetivo', `Média de ${fmt(avg)} kcal/dia, sem ficar abaixo do basal (${fmt(tmb)} kcal).`, `últimos ${dd.length} dias`);
+    const baixos = dd.filter((d) => T(d).kcal < piso);
+    if (baixos.length >= 2) add('parar', 1, '🛑', `Parar de fechar o dia abaixo de ${fmt(piso)} kcal`, `${baixos.length} dias ficaram abaixo desse piso (${baixos.slice(-3).map((d) => `${dataCurta(d)}: ${fmt(T(d).kcal)}`).join(' · ')}). Em dias de treino, isso pesa contra o músculo.`, `piso = 72% do seu metabolismo basal`);
+    else if (baixos.length === 1) add('ajustar', 3, '⚠️', 'Um dia ficou muito baixo', `${dataCurta(baixos[0])}: ${fmt(T(baixos[0]).kcal)} kcal. Evite repetir, principalmente em dia de treino.`, `piso ${fmt(piso)} kcal`);
+    // compensação: dia alto seguido de dia baixo
+    let comp = 0; for (let i = 1; i < d14.length; i++) { const a = T(d14[i - 1]), b = T(d14[i]); if (a.n && b.n && a.kcal > 2000 && b.kcal < piso * 1.1) comp++; }
+    if (comp >= 1) add('parar', 2, '🔁', 'Parar de “compensar” um dia alto com um dia muito baixo', 'Depois de um dia mais calórico, volte ao plano normal. Cortar demais no dia seguinte aumenta fome, perda de músculo e risco de novo exagero.', `${comp} ocorrência(s) nos últimos 14 dias`);
+  }
+  // déficit real × alvo
+  const defs = com(d14).map((d) => { const M = metasDia(d); return M.auto ? M.gasto - T(d).kcal : null; }).filter((x) => x != null);
+  const alvoDef = num(S.config.deficit) || 500;
+  if (defs.length >= 7) {
+    const dm = media(defs);
+    if (dm > alvoDef * 1.6) add('ajustar', 1, '⚖️', 'Seu déficit real está bem acima do alvo', `Você está com déficit médio de ${fmt(dm)} kcal/dia, contra um alvo de ${fmt(alvoDef)}. Se o plano é esse, ajuste o alvo em Ajustes; se não, coma um pouco mais.`, `gasto estimado − o que você comeu`);
+    else if (dm >= alvoDef * 0.7) add('bom', 2, '✅', 'Déficit dentro do planejado', `Déficit médio de ${fmt(dm)} kcal/dia, perto do alvo de ${fmt(alvoDef)}.`, 'últimos 14 dias');
+  }
+
+  // ----- Macros -----
+  const mac = d14.filter((d) => T(d).n > 0 && T(d).comMacros);
+  if (mac.length >= 4) {
+    const pm = media(mac.map((d) => T(d).prot));
+    const faixa = mac.map((d) => metasDia(d).prot);
+    const nok = mac.filter((d, i) => T(d).prot >= (faixa[i].min || faixa[i].alvo || 0) * 0.98).length;
+    const pmin = media(faixa.map((f) => f.min || f.alvo || 0));
+    if (pmin) {
+      if (pm >= pmin) add('bom', 1, '🥩', 'Proteína em dia', `Média de ${fmt(pm)} g/dia (meta mínima ${fmt(pmin)} g). ${nok} de ${mac.length} dias bateram a meta. Proteína alta é o que mais protege o músculo no déficit.`, `últimos ${mac.length} dias com macros`);
+      else add('ajustar', 1, '🥩', 'Proteína abaixo da meta', `Média de ${fmt(pm)} g/dia, meta mínima ${fmt(pmin)} g. Distribua em 4 refeições de 30–40 g.`, `${nok} de ${mac.length} dias na meta`);
+    }
+    const fibMin = num(S.config.fibraMin) || num(S.config.fibra) || 25, fm = media(mac.map((d) => T(d).fibra));
+    if (fm < fibMin * 0.8) add('ajustar', 2, '🥬', 'Fibra abaixo da meta', `Média de ${fmt(fm)} g/dia, meta ${fmt(fibMin)} g. Mais verduras, legumes, frutas e leguminosas ajudam na saciedade e no intestino.`, `${mac.filter((d) => T(d).fibra >= fibMin).length} de ${mac.length} dias na meta`);
+    else add('bom', 3, '🥬', 'Fibra em dia', `Média de ${fmt(fm)} g/dia (meta ${fmt(fibMin)} g).`, `últimos ${mac.length} dias`);
+    // carboidrato por kg x treino
+    const treinos = d14.filter(diaForca).length;
+    const cm = media(mac.map((d) => T(d).carb));
+    if (peso && treinos >= 8 && cm / peso < 1.6) add('ajustar', 2, '🍚', 'Pouco carboidrato para o volume de treino', `Média de ${fmt(cm)} g/dia (${fmt(cm / peso, 1)} g/kg) com ${treinos} treinos de força em 14 dias. Um pouco mais de carboidrato antes e depois do treino melhora desempenho e recuperação.`, 'referência: ~2 g/kg ou mais em fase de treino intenso');
+    // café da manhã
+    const cafes = mac.map((d) => S.refeicoes.filter((r) => r.data === d && r.refeicao === 'Café da manhã').reduce((s, r) => s + num(r.prot), 0)).filter((x) => x > 0);
+    if (cafes.length >= 4 && media(cafes) < 25) add('dica', 3, '🍳', 'Reforce a proteína do café da manhã', `Hoje ele tem em média ${fmt(media(cafes))} g de proteína. Algo perto de 30 g (ovos, whey, iogurte) distribui melhor a proteína do dia.`, `${cafes.length} dias analisados`);
+  }
+  const soKcal = d14.filter((d) => T(d).n > 0 && !T(d).comMacros).length;
+  if (soKcal >= 4) add('dica', 4, '📝', 'Alguns dias estão só com calorias', `${soKcal} dos últimos 14 dias não têm proteína, carboidrato e gordura. Lance as refeições pelo app para ter essa análise completa.`, '');
+
+  // ----- Vegetais e frutas nos registros -----
+  const comReg = d14.filter((d) => S.refeicoes.some((r) => r.data === d && r.refeicao !== 'Histórico'));
+  if (comReg.length >= 5) {
+    const tem = (d, lista) => S.refeicoes.some((r) => r.data === d && lista.some((v) => norm(r.alimento).includes(v)));
+    const dv = comReg.filter((d) => tem(d, VEG)).length, df = comReg.filter((d) => tem(d, FRUTA)).length;
+    if (dv / comReg.length < 0.5) add('ajustar', 2, '🥗', 'Poucos legumes e verduras nos registros', `Aparecem em ${dv} de ${comReg.length} dias. Se você come e não registra, lance; se não come, inclua pelo menos uma porção grande no almoço e no jantar.`, 'melhora fibra, saciedade e micronutrientes');
+    else add('bom', 3, '🥗', 'Legumes e verduras presentes', `Registrados em ${dv} de ${comReg.length} dias.`, '');
+    if (df / comReg.length < 0.4) add('dica', 4, '🍎', 'Inclua frutas', `Apareceram em ${df} de ${comReg.length} dias registrados. Uma por dia já ajuda na fibra e nos micronutrientes.`, '');
+  }
+
+  // ----- Treino e descanso -----
+  const forca = d14.filter(diaForca).length, ativos = d14.filter(diaAtivo).length;
+  if (forca >= 6) add('bom', 1, '💪', 'Constância no treino de força', `${forca} treinos de força nos últimos 14 dias (cerca de ${fmt(forca / 2, 1)} por semana).`, '');
+  else if (forca > 0 && forca < 4) add('dica', 3, '💪', 'Frequência de força baixa', `${forca} treinos de força em 14 dias. Em déficit calórico, 3 a 4 treinos por semana ajudam a proteger o músculo.`, '');
+  else if (forca === 0 && S.atividades.length) add('ajustar', 2, '💪', 'Nenhum treino de força nos últimos 14 dias', 'O treino de força é o principal sinal para o corpo manter o músculo durante a perda de peso.', '');
+  let streak = 0; for (let i = d14.length - 1; i >= 0 && diaAtivo(d14[i]); i--) streak++;
+  const descansos = d14.filter((d) => !diaAtivo(d)).length;
+  if (streak >= 6) add('parar', 1, '🛑', `Parar de treinar ${streak} dias seguidos sem descanso`, 'Reserve pelo menos 1 dia por semana sem musculação nem cardio longo. O músculo cresce e se preserva na recuperação, principalmente em déficit.', `sequência atual: ${streak} dias ativos`);
+  else if (ativos >= 12 && descansos <= 2) add('ajustar', 2, '😴', 'Poucos dias de descanso', `${descansos} dia(s) sem atividade nos últimos 14. Planeje um dia livre por semana.`, '');
+
+  // ----- Cargas dos treinos -----
+  const h = historicoCargas(), li = addDias(t0, -60);
+  let sobe = 0, desce = 0, igual = 0;
+  Object.keys(h).forEach((n) => { const l = h[n].filter((x) => x.data >= li); if (l.length >= 2) { const u = l[l.length - 1], p = l[l.length - 2]; if (u.c > p.c) sobe++; else if (u.c < p.c) desce++; else igual++; } });
+  if (sobe + desce + igual >= 3) {
+    if (desce > sobe + igual) add('ajustar', 2, '🏋️', 'Cargas caindo em vários exercícios', `${desce} exercícios com carga menor que na vez anterior. Se a força cai junto com o peso, coma um pouco mais e durma melhor antes de reduzir o treino.`, '');
+    else if (sobe >= 1) add('bom', 2, '🏋️', 'Cargas estáveis ou subindo', `${sobe} exercício(s) com mais carga e ${igual} igual(is) à vez anterior. Manter a força é o melhor sinal de que o músculo está sendo preservado.`, '');
+  } else if (forca >= 4) add('dica', 3, '🏋️', 'Registre as cargas dos treinos', 'Anote carga e repetições dos exercícios A, B e C. Assim o app mostra se a força está se mantendo enquanto o peso cai.', 'em Atividade → Musculação');
+
+  // ----- Composição corporal -----
+  const L = corpoOrdenado();
+  if (L.length >= 2) {
+    const b = L[L.length - 1], lim2 = addDias(b.data, -27);
+    const a = L.find((e) => e.data >= lim2 && e.data < b.data) || L[L.length - 2];
+    const rot = `${dataCurta(a.data)} → ${dataCurta(b.data)}`;
+    if (a.gk != null && b.gk != null) {
+      const pa = pesoDoDia(a.data) || pesoEm(a.data), pb = pesoDoDia(b.data) || pesoEm(b.data), dP = pb - pa, dG = b.gk - a.gk;
+      if (dP < -0.5 && dG < 0) {
+        const lean = 1 - (-dG / -dP);
+        if (lean > 0.35) add('ajustar', 1, '🧬', `${fmt(lean * 100)}% do peso perdido foi massa magra`, 'Quanto mais perto de 25% ou menos, melhor. Suba um pouco as calorias e a proteína, mantenha o treino de força e garanta descanso.', rot);
+        else if (lean <= 0.25) add('bom', 1, '🧬', 'Quase toda a perda é gordura', `Só ${fmt(Math.max(0, lean) * 100)}% do peso perdido foi massa magra. Excelente: continue como está.`, rot);
+        else add('dica', 2, '🧬', `${fmt((1 - lean) * 100)}% da perda foi gordura`, 'Bom resultado; dá para melhorar protegendo ainda mais a massa magra (proteína, treino de força e descanso).', rot);
+      }
+    }
+    if (a.vis != null && b.vis != null && b.vis < a.vis) add('bom', 2, '🫀', 'Gordura visceral caindo', `De ${fmt(a.vis, 1)} para ${fmt(b.vis, 1)}. É a gordura mais ligada ao risco de saúde.`, rot);
+    else if (a.vis != null && b.vis != null && b.vis > a.vis) add('ajustar', 2, '🫀', 'Gordura visceral subiu', `De ${fmt(a.vis, 1)} para ${fmt(b.vis, 1)}.`, rot);
+    if (b.vis != null && b.vis >= 10) add('dica', 3, '🫀', 'Gordura visceral ainda acima do ideal', `Está em ${fmt(b.vis, 1)}; balanças costumam considerar saudável até cerca de 9.`, `medição de ${dataCurta(b.data)}`);
+    if (a.me != null && b.me != null && b.me < a.me - 0.3) add('ajustar', 2, '💪', 'Músculo esquelético em queda', `De ${fmt(a.me, 1)} para ${fmt(b.me, 1)} kg no período. Atenção ao conjunto: proteína, calorias, descanso e cargas.`, rot);
+    else if (a.me != null && b.me != null && b.me >= a.me - 0.3) add('bom', 2, '💪', 'Músculo esquelético preservado', `De ${fmt(a.me, 1)} para ${fmt(b.me, 1)} kg.`, rot);
+    if (b.ag != null && b.ag < 55) add('dica', 3, '💧', 'Água corporal baixa na balança', `Está em ${fmt(b.ag, 1)}%. Beba água ao longo do dia (cerca de 35 ml por kg, salvo orientação médica diferente), principalmente se o apetite está reduzido.`, `medição de ${dataCurta(b.data)}`);
+  } else {
+    add('dica', 4, '🧬', 'Registre a composição corporal', 'Na aba Peso → Composição corporal, lance os números da balança toda semana para ver quanto da perda é gordura e quanto é músculo.', '');
+  }
+
+  // ----- Padrão da semana -----
+  const dw = com(d28);
+  if (dw.length >= 14) {
+    const fds = dw.filter((d) => [0, 6].includes(parse(d).getDay())), util = dw.filter((d) => ![0, 6].includes(parse(d).getDay()));
+    if (fds.length >= 4 && util.length >= 8) {
+      const mf = media(fds.map((d) => T(d).kcal)), mu = media(util.map((d) => T(d).kcal));
+      if (mf > mu + 300) add('dica', 3, '📅', 'Fim de semana come mais', `Sáb/dom: ${fmt(mf)} kcal em média, contra ${fmt(mu)} nos dias úteis (+${fmt(mf - mu)}). Planeje: reserve as calorias extras para a refeição que você mais aproveita, em vez de espalhar.`, 'últimos 28 dias');
+    }
+    // estabilidade semanal
+    const sem = []; for (let i = 0; i + 7 <= d28.length; i += 7) { const ds = com(d28.slice(i, i + 7)); if (ds.length >= 5) sem.push(media(ds.map((d) => T(d).kcal))); }
+    if (sem.length >= 3 && Math.max(...sem) - Math.min(...sem) < 350) add('bom', 2, '📊', 'Média semanal estável', `As 4 últimas semanas variaram de ${fmt(Math.min(...sem))} a ${fmt(Math.max(...sem))} kcal/dia. Dias fora da curva não estragam o resultado quando a semana se mantém.`, '');
+  }
+
+  // ----- Registro -----
+  const nReg = d14.filter((d) => T(d).n > 0).length;
+  if (nReg >= 13) add('bom', 3, '📲', 'Registro quase todo dia', `${nReg} dos últimos 14 dias com refeições lançadas.`, '');
+  else if (nReg < 9) add('ajustar', 2, '📲', 'Registre mais dias', `Só ${nReg} dos últimos 14 dias têm refeições. Sem registro, a análise perde precisão.`, '');
+
+  return out.sort((x, y) => x.prio - y.prio);
+}
+function telaDicas() {
+  const L = dicasApp();
+  const grupos = [
+    ['bom', '✅ O que está indo bem', 'Mantenha'],
+    ['ajustar', '⚠️ O que ajustar', 'Pequenas mudanças com grande efeito'],
+    ['parar', '🛑 O que parar', 'Hábitos que estão atrapalhando'],
+    ['dica', '💡 Dicas importantes', 'Para ir além'],
+  ];
+  const n = (k) => L.filter((x) => x.k === k).length;
+  const cartao = (x) => `<div class="dc ${x.k}"><div class="dc-ic">${x.ic}</div><div><b>${esc(x.t)}</b><p>${esc(x.x)}</p>${x.d ? `<small>${esc(x.d)}</small>` : ''}</div></div>`;
+  if (!L.length) return `<div class="card"><div class="empty"><b>Ainda sem dados suficientes</b>Registre refeições, atividades e pesagens por alguns dias para receber dicas personalizadas.</div></div>`;
+  return `
+  <div class="card dc-res">
+    <div class="card-h"><h3>Análise dos seus registros</h3><span class="sub">últimos 14–28 dias</span></div>
+    <div class="dc-cont"><div class="dc-n bom"><b>${n('bom')}</b><small>indo bem</small></div><div class="dc-n ajustar"><b>${n('ajustar')}</b><small>ajustar</small></div><div class="dc-n parar"><b>${n('parar')}</b><small>parar</small></div><div class="dc-n dica"><b>${n('dica')}</b><small>dicas</small></div></div>
+    <div class="hint">Gerada automaticamente a partir do que você registrou (alimentação, treinos, peso e balança), sem enviar nada para fora do app.</div>
+  </div>
+  ${grupos.map(([k, tit, sub]) => {
+    const xs = L.filter((x) => x.k === k);
+    return xs.length ? `<div class="section-title">${tit} <small style="opacity:.6;font-weight:500;text-transform:none">· ${sub}</small></div>${xs.map(cartao).join('')}` : '';
+  }).join('')}
+  <p class="hint" style="text-align:center;margin-top:14px">Dicas automáticas, baseadas em regras gerais. Não substituem a orientação de médico ou nutricionista, principalmente se você usa medicação para emagrecer.</p>`;
+}
+
+
 // ---------- Frequência de treino (calendário do mês) ----------
 // dia → { letras: ['A'…], muscu: bool, outro: bool }
 function diasTreinados() {
@@ -1093,6 +1287,8 @@ function cardCargas() {
 const ICO_MOVE ='<svg viewBox="0 0 24 24"><path d="M3 12h3l3-7 4 14 3-7h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function telaSemana() {
+  const sub = `<div class="seg" style="margin-bottom:14px">${[['semana', '📊 Semana'], ['dicas', '💡 Dicas']].map(([k, r]) => `<button class="${(ui.semSub || 'semana') === k ? 'on' : ''}" data-action="sem-sub" data-v="${k}">${r}</button>`).join('')}</div>`;
+  if (ui.semSub === 'dicas') return sub + telaDicas();
   const ini = inicioSemana(ui.semanaRef), fim = addDias(ini, 6);
   const dias = Array.from({ length: 7 }, (_, i) => addDias(ini, i));
   const t0 = hoje();
@@ -1141,6 +1337,7 @@ function telaSemana() {
   };
 
   return `
+  ${sub}
   <div class="datenav">
     <button class="iconbtn" data-action="semana" data-n="-7" aria-label="Semana anterior">${ICON.left}</button>
     <div class="lbl">
@@ -2631,6 +2828,7 @@ document.addEventListener('click', (e) => {
     case 'nova-corpo': sheetCorpo(); break;
     case 'edit-corpo': sheetCorpo(b.dataset.d); break;
     case 'corpo-salvar': salvarCorpo(); break;
+    case 'sem-sub': ui.semSub = b.dataset.v; render(); window.scrollTo(0, 0); break;
     case 'corpo-modo': ui.corpoModo = b.dataset.v; ui.corpoMetrica = ''; render(); break;
     case 'corpo-unid': ui.corpoUnid = b.dataset.v; render(); break;
     case 'corpo-per': ui.corpoPer = b.dataset.v; render(); break;
