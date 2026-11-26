@@ -39,7 +39,14 @@ const PRATOS = [
   { nome: 'Carne moída',     food: 'Patinho moído refogado' },
   { nome: 'Ovos',            food: 'Ovo inteiro cozido', un: 'un', g: 50, padrao: 'un' },
   { nome: 'Muçarela',        food: 'Queijo muçarela', un: 'fatia', g: 20, padrao: 'un' },
-  { nome: 'Leite',           food: 'Leite integral', un: 'copo', g: 200, medida: 'ml' },
+  { nome: 'Leite',           food: 'Leite semidesnatado', un: 'copo', g: 200, medida: 'ml' },
+  { nome: 'Sardinha (lata)', food: 'Sardinha em lata (molho de tomate, drenada)', un: 'lata', g: 84, padrao: 'un' },
+  { nome: 'Atum (lata)',     food: 'Atum em lata (sólido, drenado)', un: 'lata', g: 120, padrao: 'un' },
+  { nome: 'Iogurte Pense Zero', food: 'Iogurte Batavo Pense Zero', un: 'pote', g: 170, padrao: 'un' },
+  { nome: 'Bisteca de porco', food: 'Bisteca de porco frita', un: 'bisteca', g: 120, passo: 50 },
+  { nome: 'Bife bovino',     food: 'Bife bovino grelhado', un: 'bife', g: 120, passo: 50 },
+  { nome: 'Filé mignon suíno', food: 'Filé mignon suíno grelhado', un: 'filé', g: 120, passo: 50 },
+  { nome: 'Cerveja light',   food: 'Cerveja baixa caloria (Amstel Ultra, Michelob Ultra)', un: 'long neck', g: 355, medida: 'ml', padrao: 'un' },
   { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g', passo: 30 },
 ];
 

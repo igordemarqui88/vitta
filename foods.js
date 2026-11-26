@@ -1,4 +1,4 @@
-﻿// Base de alimentos — valores aproximados por 100 g (ou 100 ml), baseados na TACO/USDA.
+// Base de alimentos — valores aproximados por 100 g (ou 100 ml), baseados na TACO/USDA.
 // Campos: [nome, kcal, proteína, carboidrato, gordura, fibra]
 // Para alimentos que não estão aqui, use "Adicionar manualmente" no app (eles ficam salvos em "Meus alimentos").
 window.FOODS_BASE = [
@@ -44,6 +44,11 @@ window.FOODS_BASE = [
   ['Salmão grelhado', 229, 23.9, 0.0, 14.0, 0],
   ['Atum em lata (em água)', 116, 26.0, 0.0, 1.0, 0],
   ['Sardinha em lata (óleo)', 285, 25.0, 0.0, 20.5, 0],
+  ['Sardinha em lata (molho de tomate, drenada)', 175, 18.5, 1.5, 10.5, 0],
+  ['Atum em lata (sólido, drenado)', 130, 27.0, 0.0, 2.5, 0],
+  ['Bisteca de porco frita', 280, 26.9, 0.0, 18.2, 0],
+  ['Filé mignon suíno grelhado', 190, 30.0, 0.0, 7.0, 0],
+  ['Bife bovino grelhado', 240, 32.0, 0.0, 12.0, 0],
   ['Ovo inteiro cozido', 146, 13.3, 0.6, 9.5, 0],
   ['Ovo mexido', 175, 12.0, 1.5, 13.5, 0],
   ['Clara de ovo', 52, 10.9, 0.7, 0.2, 0],
@@ -53,6 +58,8 @@ window.FOODS_BASE = [
   // Laticínios
   ['Leite integral', 61, 3.2, 4.7, 3.3, 0],
   ['Leite desnatado', 35, 3.4, 4.9, 0.1, 0],
+  ['Leite semidesnatado', 47, 3.3, 4.8, 1.6, 0],
+  ['Iogurte Batavo Pense Zero', 36, 2.6, 5.5, 0.1, 0],
   ['Iogurte natural integral', 51, 4.1, 1.9, 3.0, 0],
   ['Iogurte natural desnatado', 41, 3.8, 5.8, 0.3, 0],
   ['Iogurte grego natural', 97, 6.0, 4.5, 6.0, 0],
@@ -112,6 +119,7 @@ window.FOODS_BASE = [
   ['Suco de laranja natural', 33, 0.7, 7.6, 0.1, 0],
   ['Refrigerante (cola)', 42, 0.0, 10.6, 0.0, 0],
   ['Cerveja', 41, 0.3, 3.3, 0.0, 0],
+  ['Cerveja baixa caloria (Amstel Ultra, Michelob Ultra)', 27, 0.2, 0.8, 0.0, 0],
   ['Vinho tinto', 85, 0.1, 2.6, 0.0, 0],
   ['Água de coco', 22, 0.0, 5.3, 0.0, 0.1],
 
