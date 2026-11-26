@@ -84,6 +84,7 @@ window.FOODS_BASE = [
   ['Melancia', 33, 0.9, 8.1, 0.0, 0.1],
   ['Melão', 29, 0.7, 7.5, 0.0, 0.3],
   ['Doce de leite', 306, 5.5, 59.0, 6.7, 0],
+  ['Sorvete de creme', 200, 3.6, 25.0, 10.0, 0.5],
   ['Abacaxi', 48, 0.9, 12.3, 0.1, 1.0],
   ['Kiwi', 51, 1.3, 11.5, 0.6, 2.7],
   ['Pera', 53, 0.6, 14.0, 0.1, 3.0],
@@ -91,6 +92,9 @@ window.FOODS_BASE = [
 
   // Verduras e legumes
   ['Brócolis cozido', 25, 2.1, 4.4, 0.5, 3.4],
+  ['Couve-flor cozida', 19, 1.2, 3.9, 0.3, 2.1],
+  ['Rúcula', 13, 1.8, 2.2, 0.1, 1.7],
+  ['Salada de repolho (com tempero)', 30, 1.0, 4.0, 1.2, 2.0],
   ['Alface', 11, 1.3, 1.7, 0.2, 1.8],
   ['Tomate', 15, 1.1, 3.1, 0.2, 1.2],
   ['Cenoura crua', 34, 1.3, 7.7, 0.2, 3.2],
@@ -121,6 +125,7 @@ window.FOODS_BASE = [
   ['Suco de laranja natural', 33, 0.7, 7.6, 0.1, 0],
   ['Refrigerante (cola)', 42, 0.0, 10.6, 0.0, 0],
   ['Cerveja', 41, 0.3, 3.3, 0.0, 0],
+  ['Chopp', 43, 0.4, 3.6, 0.0, 0],
   ['Cerveja baixa caloria (Amstel Ultra, Michelob Ultra)', 27, 0.2, 0.8, 0.0, 0],
   ['Vinho tinto', 85, 0.1, 2.6, 0.0, 0],
   ['Água de coco', 22, 0.0, 5.3, 0.0, 0.1],

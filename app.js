@@ -52,6 +52,16 @@ const PRATOS = [
   { nome: 'Melão',           food: 'Melão', un: 'fatia', g: 150, padrao: 'un' },
   { nome: 'Melancia',        food: 'Melancia', un: 'fatia', g: 200, padrao: 'un' },
   { nome: 'Doce de leite',   food: 'Doce de leite', un: 'colher', g: 20, padrao: 'un' },
+  { nome: 'Batata cozida',   food: 'Batata inglesa cozida', un: 'batata', g: 130, padrao: 'un' },
+  { nome: 'Macarrão',        food: 'Macarrão cozido', un: 'porção', g: 150, passo: 50 },
+  { nome: 'Salada de repolho', food: 'Salada de repolho (com tempero)', un: 'porção', g: 80, padrao: 'un' },
+  { nome: 'Salada de alface', food: 'Alface', un: 'porção', g: 60, padrao: 'un' },
+  { nome: 'Brócolis',        food: 'Brócolis cozido', un: 'porção', g: 80, padrao: 'un' },
+  { nome: 'Couve-flor',      food: 'Couve-flor cozida', un: 'porção', g: 80, padrao: 'un' },
+  { nome: 'Tomate',          food: 'Tomate', un: 'tomate', g: 100, padrao: 'un' },
+  { nome: 'Rúcula',          food: 'Rúcula', un: 'porção', g: 30, padrao: 'un' },
+  { nome: 'Sorvete',         food: 'Sorvete de creme', un: 'bola', g: 60, padrao: 'un' },
+  { nome: 'Chopp',           food: 'Chopp', un: 'copo', g: 300, medida: 'ml', padrao: 'un' },
   { nome: 'Cerveja Ultra',   food: 'Cerveja baixa caloria (Amstel Ultra, Michelob Ultra)', un: 'long neck', g: 355, medida: 'ml', padrao: 'un' },
   { nome: 'Whey',            food: 'Whey protein (pó)', un: 'dose', g: 30, padrao: 'g', passo: 30 },
 ];
@@ -2512,10 +2522,12 @@ function calcPrato(i) {
 }
 // Grupos e favoritos da lista de pratos. Favoritos: os que você marcou com ★ (sincronizados na aba Config);
 // sem marcação, valem os 8 que você mais lança nesta refeição.
-const GRUPOS_PRATO = [['fav', '⭐ Favoritos'], ['prot', '🥩 Proteínas'], ['carb', '🍚 Carboidratos'], ['fruta', '🍌 Frutas'], ['lac', '🥛 Laticínios'], ['beb', '🍺 Bebidas'], ['doce', '🍯 Doces'], ['todos', 'Todos']];
+const GRUPOS_PRATO = [['fav', '⭐ Favoritos'], ['prot', '🥩 Proteínas'], ['carb', '🍚 Carboidratos'], ['veg', '🥗 Saladas e legumes'], ['fruta', '🍌 Frutas'], ['lac', '🥛 Laticínios'], ['beb', '🍺 Bebidas'], ['doce', '🍯 Doces'], ['todos', 'Todos']];
 const GRUPO_DE = { 'Arroz': 'carb', 'Feijão': 'carb', 'Frango desfiado': 'prot', 'Carne moída': 'prot', 'Ovos': 'prot', 'Whey': 'prot', 'Sardinha (lata)': 'prot', 'Atum (lata)': 'prot',
   'Bisteca de porco': 'prot', 'Bife bovino': 'prot', 'Filé mignon suíno': 'prot', 'Muçarela': 'lac', 'Leite': 'lac', 'Iogurte Pense Zero': 'lac',
-  'Banana': 'fruta', 'Mamão': 'fruta', 'Laranja': 'fruta', 'Melão': 'fruta', 'Melancia': 'fruta', 'Cerveja Ultra': 'beb', 'Doce de leite': 'doce' };
+  'Banana': 'fruta', 'Mamão': 'fruta', 'Laranja': 'fruta', 'Melão': 'fruta', 'Melancia': 'fruta', 'Cerveja Ultra': 'beb', 'Doce de leite': 'doce',
+  'Batata cozida': 'carb', 'Macarrão': 'carb', 'Salada de repolho': 'veg', 'Salada de alface': 'veg', 'Brócolis': 'veg', 'Couve-flor': 'veg', 'Tomate': 'veg', 'Rúcula': 'veg',
+  'Sorvete': 'doce', 'Chopp': 'beb' };
 function favNomes() {
   try { const c = JSON.parse(S.config.favoritos || ''); if (Array.isArray(c) && c.length) return c; } catch { /* sem marcação */ }
   return (form?.lista || []).slice(0, 8).map((p) => p.nome);

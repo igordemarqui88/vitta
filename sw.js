@@ -1,6 +1,6 @@
-// Service worker: deixa o app abrir rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pido e funcionar offline.
-// Ao alterar arquivos do app, aumente a versÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o abaixo para forÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ar a atualizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.
-const CACHE = 'vitta-pub23';
+// Service worker: deixa o app abrir rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡pido e funcionar offline.
+// Ao alterar arquivos do app, aumente a versÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o abaixo para forÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ar a atualizaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o.
+const CACHE = 'vitta-pub24';
 const ARQUIVOS = [
   './', './index.html', './styles.css', './app.js', './foods.js', './historico.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
@@ -17,13 +17,13 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Rede primeiro (pega a versÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o mais nova), cache como reserva quando offline.
+// Rede primeiro (pega a versÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o mais nova), cache como reserva quando offline.
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
     // 'no-cache' obriga a conferir com o servidor: sem isso o navegador podia reaproveitar
-    // um arquivo antigo do prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³prio cache HTTP e o app nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o atualizava
+    // um arquivo antigo do prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³prio cache HTTP e o app nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o atualizava
     fetch(req, { cache: 'no-cache' })
       .then((res) => { const copia = res.clone(); caches.open(CACHE).then((c) => c.put(req, copia)); return res; })
       .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html')))
