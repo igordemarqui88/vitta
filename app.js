@@ -1551,23 +1551,29 @@ function telaCorpo() {
   const ca = comp(ea), cb = comp(eb);
   let visual = '';
   if (ca && cb) {
+    const pct = ui.corpoUnid === 'pct';
     const mx = Math.max(ca.p, cb.p);
+    // em kg: barras proporcionais ao peso; em %: cada barra é 100% do corpo naquele dia
     const barra = (c) => `<div class="cp-cl"><span>${dataCurta(c.data)}</span><b class="num">${fmt(c.p, 1)} kg</b></div>
-      <div class="cp-stack" style="width:${(c.p / mx * 100).toFixed(1)}%"><span class="g" style="flex:${c.g.toFixed(2)}">${fmt(c.g, 1)}</span><span class="m" style="flex:${(c.p - c.g).toFixed(2)}">${fmt(c.m, 1)}</span></div>`;
+      <div class="cp-stack" style="width:${pct ? 100 : (c.p / mx * 100).toFixed(1)}%"><span class="g" style="flex:${c.g.toFixed(2)}">${pct ? fmt(c.g / c.p * 100, 1) + '%' : fmt(c.g, 1)}</span><span class="m" style="flex:${(c.p - c.g).toFixed(2)}">${pct ? fmt(c.m / c.p * 100, 1) + '%' : fmt(c.m, 1)}</span></div>`;
     const dG = cb.g - ca.g, dM = cb.m - ca.m, dP = cb.p - ca.p;
+    const rel = (d, a) => (d > 0 ? '+' : d < 0 ? '−' : '') + fmt(Math.abs(a ? d / a * 100 : 0), 1) + '%';
+    const vb = (d, a) => pct ? rel(d, a) : sg(d);
     let nota = '';
     if (dP < -0.4 && dG < 0) {
       const pc = Math.min(100, Math.round(-dG / -dP * 100));
       nota = `<div class="cp-nota ${pc >= 70 ? 'ok' : pc >= 50 ? '' : 'atencao'}">Do que você perdeu de peso, <b>${pc}%</b> foi gordura${pc >= 70 ? ' — ótimo, o músculo está sendo preservado 👏' : pc >= 50 ? ' — bom ritmo, vale manter proteína e treino em dia.' : ': parte da perda vem de massa magra, reforce a proteína e a carga nos treinos.'}</div>`;
     } else if (dP >= -0.4) nota = `<div class="cp-nota">Peso quase estável: olhe gordura e massa magra para ver a recomposição.</div>`;
-    visual = `<div class="card"><div class="card-h"><h3>Antes × depois</h3><span class="sub">onde está o seu peso</span></div>
+    visual = `<div class="card"><div class="card-h"><h3>Antes × depois</h3>
+        <div class="seg" style="width:120px">${[['kg', 'kg'], ['pct', '%']].map(([k, r]) => `<button class="${(pct ? 'pct' : 'kg') === k ? 'on' : ''}" data-action="corpo-unid" data-v="${k}">${r}</button>`).join('')}</div></div>
       ${barra(ca)}${barra(cb)}
       <div class="cp-leg"><span><i class="g"></i>gordura</span><span><i class="m"></i>massa magra</span></div>
       <div class="cp-res">
-        <div><small>Peso</small><b class="num ${dP <= 0 ? 's-good' : 's-warn'}">${sg(dP)}</b></div>
-        <div><small>Gordura</small><b class="num ${dG <= 0 ? 's-good' : 's-warn'}">${sg(dG)}</b></div>
-        <div><small>Massa magra</small><b class="num ${dM >= 0 ? 's-good' : 's-warn'}">${sg(dM)}</b></div>
-      </div>${nota}</div>`;
+        <div><small>Peso</small><b class="num ${dP <= 0 ? 's-good' : 's-warn'}">${vb(dP, ca.p)}</b></div>
+        <div><small>Gordura</small><b class="num ${dG <= 0 ? 's-good' : 's-warn'}">${vb(dG, ca.g)}</b></div>
+        <div><small>Massa magra</small><b class="num ${dM >= 0 ? 's-good' : 's-warn'}">${vb(dM, ca.m)}</b></div>
+      </div>
+      <div class="hint" style="margin-top:8px">${pct ? 'Barras: a composição do corpo em % do peso. Quadros: quanto cada item mudou em relação ao valor inicial.' : 'Barras e quadros em kg.'}</div>${nota}</div>`;
   }
 
   // 3) o que mudou em cada medida (barras divergentes, em %)
@@ -2578,6 +2584,7 @@ document.addEventListener('click', (e) => {
     case 'nova-corpo': sheetCorpo(); break;
     case 'edit-corpo': sheetCorpo(b.dataset.d); break;
     case 'corpo-salvar': salvarCorpo(); break;
+    case 'corpo-unid': ui.corpoUnid = b.dataset.v; render(); break;
     case 'corpo-per': ui.corpoPer = b.dataset.v; render(); break;
     case 'corpo-metrica': ui.corpoMetrica = b.dataset.v; render(); break;
     case 'corpo-grupo': ui.corpoGrupo = b.dataset.v; ui.corpoMetrica = ''; render(); break;
