@@ -1491,9 +1491,33 @@ function multiSvg(series) {
     ${xl.map((d, i) => `<text x="${X(parse(d).getTime())}" y="${H - 6}" text-anchor="${xl.length > 1 ? (i ? 'end' : 'start') : 'middle'}">${dataCurta(d)}</text>`).join('')}
   </svg>`;
 }
+// mini gráfico de uma única medida, com a escala própria (modo "Valor")
+function miniSvg(pts, dec, cor) {
+  const W = 340, H = 104, pl = 40, pr = 10, pt = 8, pb = 20;
+  const xs = pts.map((p) => parse(p.data).getTime()), vs = pts.map((p) => p.v);
+  let mn = Math.min(...vs), mx = Math.max(...vs);
+  if (mx - mn < 1e-6) { mn -= 1; mx += 1; }
+  const pv = (mx - mn) * 0.18; mn -= pv; mx += pv;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const X = (t) => x1 === x0 ? (pl + (W - pl - pr) / 2) : pl + (W - pl - pr) * (t - x0) / (x1 - x0);
+  const Y = (v) => pt + (H - pt - pb) * (1 - (v - mn) / (mx - mn));
+  const P = pts.map((p, i) => [X(xs[i]), Y(vs[i])]);
+  const path = P.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const ticks = [mn + pv, mx - pv];
+  return `<svg viewBox="0 0 ${W} ${H}">
+    ${ticks.map((v) => `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${pl - 6}" y="${Y(v) + 3.5}" text-anchor="end">${fmt(v, dec)}</text>`).join('')}
+    ${P.length > 1 ? `<path d="${path}" fill="none" stroke="${cor}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+    ${P.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === P.length - 1 ? 4.5 : 2.6}" fill="var(--surface)" stroke="${cor}" stroke-width="2"/>`).join('')}
+    <text x="${pl}" y="${H - 4}" text-anchor="start">${dataCurta(pts[0].data)}</text><text x="${W - pr}" y="${H - 4}" text-anchor="end">${dataCurta(pts[pts.length - 1].data)}</text>
+  </svg>`;
+}
+const CORPO_MODOS = [['abs', 'Valor'], ['pct', '% desde o início'], ['var', 'Variação']];
 function graficoCorpo(LW) {
   const gr = CORPO_GR.find((g) => g[0] === ui.corpoGrupo) || CORPO_GR[0];
-  const chips = `<div class="seg seg-scroll" style="margin-bottom:12px">${CORPO_GR.map(([k, r]) => `<button class="${!ui.corpoMetrica && gr[0] === k ? 'on' : ''}" data-action="corpo-grupo" data-v="${k}">${r}</button>`).join('')}</div>`;
+  const modo = ui.corpoModo || 'pct';
+  const chips = `<div class="seg seg-scroll" style="margin-bottom:10px">${CORPO_GR.map(([k, r]) => `<button class="${!ui.corpoMetrica && gr[0] === k ? 'on' : ''}" data-action="corpo-grupo" data-v="${k}">${r}</button>`).join('')}</div>
+    <div class="seg" style="margin-bottom:12px">${CORPO_MODOS.map(([k, r]) => `<button class="${modo === k ? 'on' : ''}" data-action="corpo-modo" data-v="${k}">${r}</button>`).join('')}</div>`;
+  const sub = { abs: 'valores reais', pct: 'variação % desde o início', var: 'variação em relação à medição anterior' }[modo];
   // um indicador isolado, com os valores reais
   const mk = ui.corpoMetrica && CORPO.find((c) => c.k === ui.corpoMetrica);
   if (mk) {
@@ -1505,18 +1529,41 @@ function graficoCorpo(LW) {
     const c = CORPO.find((x) => x.k === k), xs = LW.filter((e) => e[k] != null);
     if (!xs.length) return null;
     const v0 = xs[0][k];
-    return { c, cor: CORES_CORPO[i % CORES_CORPO.length], a: v0, b: xs[xs.length - 1][k], pts: xs.map((e) => ({ data: e.data, v: e[k], pct: v0 ? (e[k] / v0 - 1) * 100 : 0 })) };
+    const base = xs.map((e, j) => ({ data: e.data, v: e[k], pct: v0 ? (e[k] / v0 - 1) * 100 : 0, step: j ? (xs[j - 1][k] ? (e[k] / xs[j - 1][k] - 1) * 100 : 0) : null }));
+    return { c, cor: CORES_CORPO[i % CORES_CORPO.length], a: v0, b: xs[xs.length - 1][k], pts: base };
   }).filter(Boolean);
   if (!series.length) return `<div class="card chart"><div class="card-h"><h3>Evolução</h3></div>${chips}<div class="empty">Sem medições deste grupo no período.</div></div>`;
-  const leg = series.map((s) => {
-    const d = s.b - s.a, pct = s.a ? d / s.a * 100 : 0;
-    const cls = !s.c.bom || Math.abs(d) < 1e-9 ? '' : (d * s.c.bom > 0 ? 's-good' : 's-warn');
-    return `<button class="cp-lg" data-action="corpo-metrica" data-v="${s.c.k}"><i style="background:${s.cor}"></i><span>${esc(rotCorpo(s.c))}</span><b class="num">${fmt(s.a, s.c.dec)} → ${fmt(s.b, s.c.dec)}</b><em class="${cls}">${(pct > 0 ? '+' : pct < 0 ? '−' : '') + fmt(Math.abs(pct), 1)}%</em></button>`;
-  }).join('');
-  return `<div class="card chart"><div class="card-h"><h3>Evolução</h3><span class="sub">variação % no período</span></div>${chips}
-    ${multiSvg(series)}
-    <div class="cp-legs">${leg}</div>
-    <div class="hint" style="margin-top:6px">Cada linha mostra quanto o indicador mudou em relação ao início do período. Toque em um indicador para ver os valores reais.</div></div>`;
+  const cls = (c, d) => !c.bom || Math.abs(d) < 1e-9 ? '' : (d * c.bom > 0 ? 's-good' : 's-warn');
+  const sgn = (v, d = 1) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(Math.abs(v), d);
+  let corpo = '', dica = '';
+  if (modo === 'abs') {
+    // cada indicador no seu próprio gráfico, na escala real
+    corpo = series.map((s) => {
+      const d = s.b - s.a, pct = s.a ? d / s.a * 100 : 0;
+      return `<div class="cp-mini"><div class="cp-lg static"><i style="background:${s.cor}"></i><span>${esc(rotCorpo(s.c))}</span><b class="num">${fmt(s.a, s.c.dec)} → ${fmt(s.b, s.c.dec)}</b><em class="${cls(s.c, d)}">${sgn(pct)}%</em></div>${miniSvg(s.pts, s.c.dec, s.cor)}</div>`;
+    }).join('');
+    dica = 'Cada indicador tem a sua própria escala, com os valores reais da balança.';
+  } else if (modo === 'pct') {
+    const leg = series.map((s) => {
+      const d = s.b - s.a, pct = s.a ? d / s.a * 100 : 0;
+      return `<button class="cp-lg" data-action="corpo-metrica" data-v="${s.c.k}"><i style="background:${s.cor}"></i><span>${esc(rotCorpo(s.c))}</span><b class="num">${fmt(s.a, s.c.dec)} → ${fmt(s.b, s.c.dec)}</b><em class="${cls(s.c, d)}">${sgn(pct)}%</em></button>`;
+    }).join('');
+    corpo = `${multiSvg(series)}<div class="cp-legs">${leg}</div>`;
+    dica = 'Cada linha mostra quanto o indicador mudou em relação ao início do período. Toque em um indicador para ver os valores reais.';
+  } else {
+    // variação entre uma medição e a seguinte (em %), para ver o ritmo
+    const sv = series.map((s) => ({ ...s, pts: s.pts.filter((p) => p.step != null).map((p) => ({ data: p.data, v: p.v, pct: p.step })) })).filter((s) => s.pts.length);
+    if (!sv.length) return `<div class="card chart"><div class="card-h"><h3>Evolução</h3><span class="sub">${sub}</span></div>${chips}<div class="empty">Precisa de pelo menos 2 medições no período.</div></div>`;
+    const leg = sv.map((s) => {
+      const m = s.pts.reduce((t, p) => t + p.pct, 0) / s.pts.length, ult = s.pts[s.pts.length - 1].pct;
+      return `<div class="cp-lg static"><i style="background:${s.cor}"></i><span>${esc(rotCorpo(s.c))}</span><b class="num">méd. ${sgn(m, 1)}%</b><em class="${cls(s.c, ult)}">últ. ${sgn(ult, 1)}%</em></div>`;
+    }).join('');
+    corpo = `${multiSvg(sv)}<div class="cp-legs">${leg}</div>`;
+    dica = 'Cada ponto é a mudança em % desde a medição anterior: abaixo de zero caiu, acima subiu. Mostra o ritmo semana a semana.';
+  }
+  return `<div class="card chart"><div class="card-h"><h3>Evolução</h3><span class="sub">${sub}</span></div>${chips}
+    ${corpo}
+    <div class="hint" style="margin-top:6px">${dica}</div></div>`;
 }
 function telaCorpo() {
   const L = corpoOrdenado();
@@ -2584,6 +2631,7 @@ document.addEventListener('click', (e) => {
     case 'nova-corpo': sheetCorpo(); break;
     case 'edit-corpo': sheetCorpo(b.dataset.d); break;
     case 'corpo-salvar': salvarCorpo(); break;
+    case 'corpo-modo': ui.corpoModo = b.dataset.v; ui.corpoMetrica = ''; render(); break;
     case 'corpo-unid': ui.corpoUnid = b.dataset.v; render(); break;
     case 'corpo-per': ui.corpoPer = b.dataset.v; render(); break;
     case 'corpo-metrica': ui.corpoMetrica = b.dataset.v; render(); break;
