@@ -1445,52 +1445,96 @@ function deltaCorpo(c, d) {
   const cls = !c.bom || Math.abs(d) < 1e-9 ? '' : (d * c.bom > 0 ? 's-good' : 's-warn');
   return `<small class="${cls}">${Math.abs(d) < 1e-9 ? '= igual' : (d > 0 ? '▲ +' : '▼ ') + fmt(d, c.dec)}</small>`;
 }
+// mini gráfico de tendência (últimos valores) — verde se a tendência é boa, amarelo se não
+function spark(vals, bom) {
+  if (vals.length < 2) return '';
+  const W = 64, H = 22, mn = Math.min(...vals), mx = Math.max(...vals), rg = mx - mn || 1;
+  const pts = vals.map((v, i) => [(i / (vals.length - 1)) * (W - 4) + 2, H - 3 - ((v - mn) / rg) * (H - 6)]);
+  const d = vals[vals.length - 1] - vals[0];
+  const cor = !bom || Math.abs(d) < 1e-9 ? 'var(--muted)' : (d * bom > 0 ? 'var(--good)' : 'var(--warn)');
+  const u = pts[pts.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}"><polyline points="${pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')}" fill="none" stroke="${cor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${u[0].toFixed(1)}" cy="${u[1].toFixed(1)}" r="2.4" fill="${cor}"/></svg>`;
+}
+const CORPO_GRUPOS = [
+  ['🧈 Gordura', ['gk', 'vis']],
+  ['💪 Músculo e massa magra', ['mm', 'me', 'lbm', 'mmp', 'mep']],
+  ['🔥 Metabolismo e outros', ['tmb', 'im', 'ag', 'pr', 'os']],
+];
 function telaCorpo() {
   const L = corpoOrdenado();
+  const bSync = S.conn.url ? '<button class="btn ghost" data-action="sync">🔄 Sincronizar</button>' : '';
   if (!L.length) {
-    return `<div class="card"><div class="empty"><b>Nenhuma medição ainda</b>Na segunda-feira, depois de se pesar, registre os números da balança (gordura, músculo, visceral, metabolismo…) para acompanhar a composição do corpo.</div>
-      <button class="btn" data-action="nova-corpo">+ Registrar medição</button></div>`;
+    return `<div class="card"><div class="empty"><b>Nenhuma medição por aqui ainda</b>${S.conn.url
+      ? 'Se você já lançou as medições na planilha, toque em Sincronizar para trazê-las.'
+      : 'Na segunda-feira, depois de se pesar, registre os números da balança para acompanhar a composição do corpo.'}</div>
+      <div class="btn-row"><button class="btn" data-action="nova-corpo">+ Registrar</button>${bSync}</div></div>`;
   }
-  const ult = L[L.length - 1], prim = L[0];
-  const ant = (c) => { const xs = L.filter((e) => e[c.k] != null); return xs.length > 1 ? xs[xs.length - 2][c.k] : null; };
-  const tiles = CORPO.filter((c) => ult[c.k] != null || L.some((e) => e[c.k] != null)).map((c) => {
-    const xs = L.filter((e) => e[c.k] != null), u = xs[xs.length - 1], p = xs.length > 1 ? xs[xs.length - 2] : null;
-    return `<div class="cp-t"><small>${esc(rotCorpo(c))}</small><b class="num">${fmt(u[c.k], c.dec)}<span>${c.un && c.un !== '%' && c.un !== 'kg' ? ' ' + c.un : c.un ? ' ' + c.un : ''}</span></b>${p ? deltaCorpo(c, u[c.k] - p[c.k]) : ''}<em>${dataCurta(u.data)}</em></div>`;
+  const modo = ui.corpoComp === 'ant' ? 'ant' : 'ini';
+  const serie = (c) => L.filter((e) => e[c.k] != null);
+  const ref = (xs) => xs.length < 2 ? null : (modo === 'ant' ? xs[xs.length - 2] : xs[0]);
+  const delta = (c) => { const xs = serie(c), r = ref(xs); return r ? deltaCorpo(c, xs[xs.length - 1][c.k] - r[c.k]) : ''; };
+  const ult = L[L.length - 1];
+  const un = (c) => c.un && c.un !== '%' ? ' ' + c.un : c.un === '%' ? '%' : '';
+
+  // destaque: gordura corporal
+  const gp = CORPO[0], xg = serie(gp);
+  let hero = '';
+  if (xg.length) {
+    const u = xg[xg.length - 1];
+    hero = `<div class="cp-hero">
+      <div><small>Gordura corporal</small><b class="num">${fmt(u.gp, 1)}<span>%</span></b>${delta(gp)}<em>${u.gk != null ? fmt(u.gk, 1) + ' kg de gordura · ' : ''}${dataCurta(u.data)}</em></div>
+      ${spark(xg.slice(-10).map((e) => e.gp), -1).replace('class="spark"', 'class="spark big"')}
+    </div>`;
+  }
+  const grupos = CORPO_GRUPOS.map(([tit, ks]) => {
+    const cs = ks.map((k) => CORPO.find((c) => c.k === k)).filter((c) => serie(c).length);
+    if (!cs.length) return '';
+    return `<div class="cp-g">${tit}</div><div class="cp-grid">${cs.map((c) => {
+      const xs = serie(c), u = xs[xs.length - 1];
+      return `<div class="cp-t"><div class="cp-top"><small>${esc(rotCorpo(c))}</small>${spark(xs.slice(-8).map((e) => e[c.k]), c.bom)}</div><b class="num">${fmt(u[c.k], c.dec)}<span>${esc(un(c))}</span></b>${delta(c)}<em>${dataCurta(u.data)}</em></div>`;
+    }).join('')}</div>`;
   }).join('');
 
-  // leitura: o quanto da mudança desde a primeira medição foi gordura × massa magra
+  // leitura: quanto da mudança foi gordura × massa magra
   let leitura = '';
   const comGk = L.filter((e) => e.gk != null);
   if (comGk.length > 1) {
-    const a = comGk[0], b = comGk[comGk.length - 1];
+    const a = modo === 'ant' ? comGk[comGk.length - 2] : comGk[0], b = comGk[comGk.length - 1];
     const pa = pesoDoDia(a.data) || pesoEm(a.data), pb = pesoDoDia(b.data) || pesoEm(b.data);
     const dG = b.gk - a.gk, dP = pb - pa;
     const magra = (e) => e.lbm != null ? e.lbm : (pesoDoDia(e.data) || pesoEm(e.data)) - e.gk;
     const dM = magra(b) - magra(a);
+    const sg = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(Math.abs(v), 1) + ' kg';
     const lin = [];
-    if (pa && pb) lin.push(`<div><span>⚖️ Peso<small>${dataCurta(a.data)} → ${dataCurta(b.data)}</small></span><strong class="num ${dP <= 0 ? 's-good' : 's-warn'}">${dP > 0 ? '+' : '−'}${fmt(Math.abs(dP), 1)} kg</strong></div>`);
-    lin.push(`<div><span>🧈 Gordura<small>${fmt(a.gk, 1)} → ${fmt(b.gk, 1)} kg</small></span><strong class="num ${dG <= 0 ? 's-good' : 's-warn'}">${dG > 0 ? '+' : '−'}${fmt(Math.abs(dG), 1)} kg</strong></div>`);
-    lin.push(`<div><span>💪 Massa magra<small>${fmt(magra(a), 1)} → ${fmt(magra(b), 1)} kg</small></span><strong class="num ${dM >= 0 ? 's-good' : 's-warn'}">${dM > 0 ? '+' : '−'}${fmt(Math.abs(dM), 1)} kg</strong></div>`);
+    if (pa && pb) lin.push(`<div><span>⚖️ Peso<small>${fmt(pa, 1)} → ${fmt(pb, 1)} kg</small></span><strong class="num ${dP <= 0 ? 's-good' : 's-warn'}">${sg(dP)}</strong></div>`);
+    lin.push(`<div><span>🧈 Gordura<small>${fmt(a.gk, 1)} → ${fmt(b.gk, 1)} kg</small></span><strong class="num ${dG <= 0 ? 's-good' : 's-warn'}">${sg(dG)}</strong></div>`);
+    lin.push(`<div><span>💪 Massa magra<small>${fmt(magra(a), 1)} → ${fmt(magra(b), 1)} kg</small></span><strong class="num ${dM >= 0 ? 's-good' : 's-warn'}">${sg(dM)}</strong></div>`);
     let nota = '';
-    if (pa && pb && dP < -0.5 && dG < 0) {
+    if (pa && pb && dP < -0.4 && dG < 0) {
       const pc = Math.min(100, Math.round(-dG / -dP * 100));
-      nota = `<div class="hint" style="margin-top:8px">Do que você perdeu de peso, <b>${pc}%</b> foi gordura${pc >= 70 ? ' — ótimo, o músculo está sendo preservado 👏' : pc >= 50 ? '.' : ': parte da perda está vindo de massa magra, vale reforçar proteína e treino.'}</div>`;
+      nota = `<div class="cp-nota ${pc >= 70 ? 'ok' : pc >= 50 ? '' : 'atencao'}">Do que você perdeu de peso, <b>${pc}%</b> foi gordura${pc >= 70 ? ' — ótimo, o músculo está sendo preservado 👏' : pc >= 50 ? ' — bom ritmo, vale manter proteína e treino em dia.' : ' — parte da perda vem de massa magra: reforce a proteína e a carga nos treinos.'}</div>`;
+    } else if (pa && pb && dP >= -0.4) {
+      nota = `<div class="cp-nota">Peso quase estável no período; olhe a gordura e a massa magra para ver a recomposição.</div>`;
     }
-    leitura = `<div class="card"><div class="card-h"><h3>Leitura da evolução</h3><span class="sub">desde ${dataCurta(a.data)}</span></div><div class="hero-stats resumo-sem">${lin.join('')}</div>${nota}</div>`;
+    leitura = `<div class="card"><div class="card-h"><h3>Leitura da evolução</h3><span class="sub">${dataCurta(a.data)} → ${dataCurta(b.data)}</span></div><div class="hero-stats resumo-sem">${lin.join('')}</div>${nota}</div>`;
   }
 
   const mk = CORPO.find((c) => c.k === ui.corpoMetrica) || CORPO[0];
   const pts = L.filter((e) => e[mk.k] != null).map((e) => ({ data: e.data, v: e[mk.k] }));
   const desc = [...L].reverse();
+  const curto = (c) => rotCorpo(c).replace('Músculo esquelético', 'M. esquel.').replace('Massa muscular', 'M. musc.').replace('Gordura corporal', 'Gordura').replace('Metabolismo basal', 'Metabolismo').replace('Idade metabólica', 'Idade met.').replace('Gordura visceral', 'Visceral').replace('Peso da gordura', 'Gordura');
   return `
   <div class="card">
     <div class="card-h"><h3>Última medição</h3><button class="pill-add" data-action="nova-corpo">+ Registrar</button></div>
-    <div class="cp-grid">${tiles}</div>
+    <div class="seg" style="margin-bottom:12px">${[['ini', 'Desde o início'], ['ant', 'vs semana anterior']].map(([k, r]) => `<button class="${modo === k ? 'on' : ''}" data-action="corpo-comp" data-v="${k}">${r}</button>`).join('')}</div>
+    ${hero}
+    ${grupos}
+    <div class="hint" style="margin-top:10px">${L.length} medições · de ${dataCurta(L[0].data)} a ${dataCurta(ult.data)}. Verde = melhorou, amarelo = piorou.</div>
   </div>
   ${leitura}
   <div class="card chart">
     <div class="card-h"><h3>Evolução</h3><span class="sub">${esc(rotCorpo(mk))}</span></div>
-    <div class="seg seg-scroll" style="margin-bottom:12px">${CORPO.filter((c) => L.some((e) => e[c.k] != null)).map((c) => `<button class="${c.k === mk.k ? 'on' : ''}" data-action="corpo-metrica" data-v="${c.k}">${esc(rotCorpo(c).replace('Músculo esquelético', 'M. esquel.').replace('Massa muscular', 'M. musc.').replace('Gordura corporal', 'Gordura').replace('Metabolismo basal', 'Metabolismo'))}</button>`).join('')}</div>
+    <div class="seg seg-scroll" style="margin-bottom:12px">${CORPO.filter((c) => L.some((e) => e[c.k] != null)).map((c) => `<button class="${c.k === mk.k ? 'on' : ''}" data-action="corpo-metrica" data-v="${c.k}">${esc(curto(c))}</button>`).join('')}</div>
     ${linhaSvg(pts, mk.dec)}
   </div>
   <div class="section-title">Histórico das medições</div>
@@ -1500,7 +1544,8 @@ function telaCorpo() {
       <button class="body" style="text-align:left;background:none;border:0;color:inherit;font:inherit;padding:0" data-action="edit-corpo" data-d="${e.data}"><b>${rotuloDia(e.data)}${rotuloDia(e.data).includes(',') ? '' : ', ' + dataCurta(e.data)}</b><small class="num">${[e.gp != null ? `gordura ${fmt(e.gp, 1)}%` : '', e.mm != null ? `músculo ${fmt(e.mm, 1)} kg` : '', e.vis != null ? `visceral ${fmt(e.vis, 1)}` : ''].filter(Boolean).join(' · ') || 'toque para editar'}</small></button>
       <button class="del" data-action="del-corpo" data-d="${e.data}" aria-label="Excluir">${ICON.x}</button>
     </div>`).join('')}
-  </div>`;
+  </div>
+  ${bSync ? `<div class="btn-row" style="margin-top:12px">${bSync}</div>` : ''}`;
 }
 function sheetCorpo(data) {
   const reg = data ? (lerCorpo()[data] || {}) : {};
@@ -2472,10 +2517,11 @@ document.addEventListener('click', (e) => {
     }
     case 'rel-pdf': imprimirHtml(relatorioHTML($('#relMes').value)); break;
     case 'rel-csv': { const ym = $('#relMes').value; baixarArquivo(`vitta-${ym}.csv`, relatorioCSV(ym), 'text/csv;charset=utf-8'); toast('CSV baixado'); break; }
-    case 'peso-sub': ui.pesoSub = b.dataset.v; render(); break;
+    case 'peso-sub': ui.pesoSub = b.dataset.v; render(); if (ui.pesoSub === 'corpo') sync(false); break; // ao abrir a composição, busca as medições mais recentes da planilha
     case 'nova-corpo': sheetCorpo(); break;
     case 'edit-corpo': sheetCorpo(b.dataset.d); break;
     case 'corpo-salvar': salvarCorpo(); break;
+    case 'corpo-comp': ui.corpoComp = b.dataset.v; render(); break;
     case 'corpo-metrica': ui.corpoMetrica = b.dataset.v; render(); break;
     case 'del-corpo': {
       const d = b.dataset.d;

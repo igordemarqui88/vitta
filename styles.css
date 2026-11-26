@@ -491,3 +491,17 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--m
 .prot-chip{text-align:left;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:transparent;color:inherit;font:inherit;display:flex;flex-direction:column;gap:2px}
 .prot-chip:active{background:var(--brand-soft)}
 .prot-chip small{opacity:.7;font-size:12px}
+
+/* composição corporal v2 */
+.spark{width:64px;height:22px;flex:none}
+.spark.big{width:110px;height:44px}
+.cp-hero{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--line);background:var(--brand-soft);border-radius:14px;padding:14px;margin-bottom:6px}
+.cp-hero small{display:block;opacity:.75;font-size:12px}
+.cp-hero b{font-size:34px;line-height:1.1}
+.cp-hero b span{font-size:16px;opacity:.7}
+.cp-hero em{display:block;font-style:normal;font-size:12px;opacity:.6;margin-top:2px}
+.cp-g{font-weight:700;font-size:13px;margin:14px 0 8px}
+.cp-top{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+.cp-nota{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--brand-soft);font-size:13px;line-height:1.4}
+.cp-nota.ok{border:1px solid var(--good)}
+.cp-nota.atencao{border:1px solid var(--warn)}
