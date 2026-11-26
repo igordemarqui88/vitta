@@ -1577,7 +1577,7 @@ function telaCorpo() {
   }
 
   // 3) o que mudou em cada medida (barras divergentes, em %)
-  const linhas = CORPO.filter((c) => c.k !== 'mmp' && c.k !== 'mep').map((c) => {
+  const linhas = CORPO.map((c) => {
     const xs = serie(c); if (xs.length < 2) return null;
     const a = xs[0][c.k], b = xs[xs.length - 1][c.k], d = b - a, pct = a ? d / a * 100 : 0;
     return { c, a, b, d, pct, xs };
@@ -1590,9 +1590,9 @@ function telaCorpo() {
       const u = x.c.un === '%' ? '%' : x.c.un ? ' ' + x.c.un : '';
       return `<div class="cp-r"><div class="cp-rh"><span>${esc(rotCorpo(x.c).replace(/ \((kg|%)\)$/, ''))}${x.c.un === '%' || x.c.un === 'kg' ? ` <em>${x.c.un}</em>` : ''}</span><span class="num">${fmt(x.a, x.c.dec)} → <b>${fmt(x.b, x.c.dec)}</b>${esc(u)}</span></div>
         <div class="cp-rb"><i></i><span class="${x.d >= 0 ? 'pos' : 'neg'} ${cls}" style="width:${w}%"></span></div>
-        <div class="cp-rd ${cls === 'good' ? 's-good' : cls === 'warn' ? 's-warn' : ''}">${Math.abs(x.d) < 1e-9 ? 'igual' : sg(x.d, x.c.dec, '') + ' (' + (x.pct > 0 ? '+' : x.pct < 0 ? '−' : '') + fmt(Math.abs(x.pct), 1) + '%)'}</div></div>`;
+        <div class="cp-rd ${cls === 'good' ? 's-good' : cls === 'warn' ? 's-warn' : ''}">${Math.abs(x.d) < 1e-9 ? 'igual' : sg(x.d, x.c.dec, x.c.un === '%' ? ' p.p.' : '') + ' (' + (x.pct > 0 ? '+' : x.pct < 0 ? '−' : '') + fmt(Math.abs(x.pct), 1) + '%)'}</div></div>`;
     }).join('')}
-    <div class="hint" style="margin-top:8px">Verde = melhorou, amarelo = piorou, cinza = neutro. Pequenas oscilações de água e do horário da pesagem são normais.</div></div>` : '';
+    <div class="hint" style="margin-top:8px">Verde = melhorou, amarelo = piorou, cinza = neutro. Nas medidas em %, a diferença vem em pontos percentuais (p.p.) e o % entre parênteses é a variação relativa. Pequenas oscilações de água e do horário da pesagem são normais.</div></div>` : '';
 
   // 4) gráfico da métrica escolhida, dentro do período
   const grafico = graficoCorpo(LW);
